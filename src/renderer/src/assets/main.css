@@ -1,0 +1,24 @@
+@import './base.css';
+
+body {
+  overflow: hidden;
+  background-image: url('./wavy-lines.svg');
+  background-size: cover;
+  user-select: none;
+}
+
+code {
+  font-weight: 600;
+  padding: 3px 5px;
+  border-radius: 2px;
+  background-color: var(--color-background-mute);
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  font-size: 85%;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Xóa bỏ toàn bộ các block .logo, .creator, .text, v.v. phía dưới vì không dùng đến */
