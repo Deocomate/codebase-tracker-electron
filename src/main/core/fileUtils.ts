@@ -69,8 +69,13 @@ export function ensureDirectory(dirPath: string): void {
   fs.mkdir(dirPath, { recursive: true }).catch(() => {})
 }
 
+// Chỉ dùng để chuẩn hóa ID/Key lưu trữ, không dùng cho đọc/ghi file
+export function normalizeForStorage(p: string): string {
+  return p.replace(/\\/g, '/')
+}
+
 export function getRelativePath(absPath: string, basePath: string): string {
-  return path.relative(basePath, absPath).replace(/\\/g, '/')
+  return normalizeForStorage(path.relative(basePath, absPath))
 }
 
 export function formatFileSize(bytes: number): string {

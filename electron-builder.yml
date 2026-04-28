@@ -48,6 +48,11 @@ linux:
   maintainer: electronjs.org
   category: Utility
   icon: resources/icon.png # Add icon configuration for Linux
+
+deb:
+  depends:
+    - xclip
+    - wl-clipboard
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false

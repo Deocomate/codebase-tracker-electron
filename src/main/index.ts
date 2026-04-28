@@ -6,6 +6,15 @@ import { registerIpcHandlers } from './ipcHandlers'
 // Import icon for window taskbar/titlebar display
 import icon from '../../resources/icon.png?asset'
 
+// Bật cấu hình Wayland tự động cho Linux (tránh XWayland gây mờ UI)
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+  app.commandLine.appendSwitch('enable-features', 'WaylandWindowDecorations')
+}
+
+// THÊM DÒNG NÀY ĐỂ TẮT GPU CACHE / HARDWARE ACCELERATION
+app.disableHardwareAcceleration() 
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,

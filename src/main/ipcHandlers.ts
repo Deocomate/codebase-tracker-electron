@@ -232,7 +232,14 @@ export function registerIpcHandlers(): void {
 
   // ==================== FILE OPERATIONS ====================
   ipcMain.handle('file:openExplorer', async (_event, filePath: string) => {
-    shell.showItemInFolder(path.resolve(filePath))
+    const resolvedPath = path.resolve(filePath)
+    if (process.platform === 'linux') {
+      // Dùng xdg-open cho Linux (shell.showItemInFolder không ổn định trên một số DE)
+      const { exec } = await import('child_process')
+      exec(`xdg-open "${path.dirname(resolvedPath)}"`)
+    } else {
+      shell.showItemInFolder(resolvedPath)
+    }
     return { status: 'success' }
   })
 
