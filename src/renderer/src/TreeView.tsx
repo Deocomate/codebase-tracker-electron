@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -28,6 +28,17 @@ import {
   File
 } from 'lucide-react'
 import type { TreeData } from './types'
+
+function formatTokenCount(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return '0'
+  if (tokens < 1000) return tokens.toLocaleString()
+  if (tokens < 1_000_000) {
+    const value = tokens / 1000
+    return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}k`
+  }
+  const value = tokens / 1_000_000
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}M`
+}
 
 interface TreeNodeProps {
   node: TreeData
@@ -75,7 +86,7 @@ function SortableTreeNode({
     return <File size={15} className="text-slate-400 shrink-0" />
   }
 
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+  const handleCheckboxChange = (e: ChangeEvent<HTMLInputElement>): void => {
     e.stopPropagation()
     if (onToggle) onToggle(node.id, e.target.checked)
   }
@@ -83,7 +94,7 @@ function SortableTreeNode({
   return (
     <div ref={setNodeRef} style={style} className="select-none font-medium text-textMain">
       <div
-        className={`flex items-center py-[3px] pl-1 pr-2 hover:bg-[#e4e6e8] cursor-pointer transition-colors group ${
+        className={`flex items-center py-0.75 pl-1 pr-2 hover:bg-[#e4e6e8] cursor-pointer transition-colors group ${
           node.is_ignored ? 'opacity-40 grayscale' : ''
         }`}
         onClick={() => node.is_dir && setExpanded(!expanded)}
@@ -109,7 +120,7 @@ function SortableTreeNode({
 
         <input
           type="checkbox"
-          className="mx-1 w-[13px] h-[13px] border-slate-300 text-accent cursor-pointer shrink-0"
+          className="mx-1 w-3.25 h-3.25 border-slate-300 text-accent cursor-pointer shrink-0"
           checked={node.checked === 'checked'}
           ref={(el) => {
             if (el) el.indeterminate = node.checked === 'partial'
@@ -119,11 +130,19 @@ function SortableTreeNode({
         />
 
         <span className="mr-1.5 shrink-0">{getIcon()}</span>
-        <span className="text-[13px] truncate">{node.name}</span>
+        <span className="text-[13px] truncate flex-1 min-w-0">{node.name}</span>
+        <span
+          className={`ml-2 shrink-0 rounded-full bg-slate-200/70 px-1.5 py-0.5 font-mono text-[10px] tracking-tight text-slate-600 ${
+            node.is_ignored ? 'opacity-75' : ''
+          }`}
+          title={`${node.tokens.toLocaleString()} estimated tokens`}
+        >
+          {formatTokenCount(node.tokens)}
+        </span>
       </div>
 
       {expanded && node.children && node.children.length > 0 && (
-        <div className="ml-3 pl-[1px]">
+        <div className="ml-3 pl-px">
           <SortableContext items={node.children.map(c => c.id)} strategy={verticalListSortingStrategy}>
             {node.children.map((child) => (
               <SortableTreeNode 
@@ -145,9 +164,10 @@ interface TreeViewProps {
   data: TreeData | null
   onToggle?: (path: string, isChecked: boolean) => void
   onReorder?: (newTreeData: TreeData) => void
+  emptyMessage?: string
 }
 
-export default function TreeView({ data, onToggle, onReorder }: TreeViewProps) {
+export default function TreeView({ data, onToggle, onReorder, emptyMessage }: TreeViewProps) {
   const [_, setActiveId] = useState<string | null>(null)
   
   const sensors = useSensors(
@@ -210,7 +230,7 @@ export default function TreeView({ data, onToggle, onReorder }: TreeViewProps) {
     return (
       <div className="p-6 text-center text-textMuted text-sm flex flex-col items-center gap-3">
         <Folder size={32} className="opacity-20" />
-        No folder opened.
+        {emptyMessage ?? 'No folder opened.'}
       </div>
     )
   }

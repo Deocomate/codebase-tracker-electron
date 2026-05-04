@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Split from 'react-split'
 import {
   FolderSearch,
@@ -14,9 +14,79 @@ import {
 import TreeView from './TreeView'
 import type { TreeData, Stats, OutputFormats, LoadProjectResponse } from './types'
 
+type SidebarTab = 'selected' | 'ignored'
+
+function filterTreeByTab(node: TreeData | null, tab: SidebarTab): TreeData | null {
+  if (!node) return null
+
+  if (tab === 'selected' && node.is_ignored) {
+    return null
+  }
+
+  const filteredChildren = node.children
+    .map((child) => filterTreeByTab(child, tab))
+    .filter((child): child is TreeData => child !== null)
+
+  if (tab === 'ignored' && node.is_ignored) {
+    return {
+      ...node,
+      children: filteredChildren
+    }
+  }
+
+  const matchesTab = tab === 'selected'
+    ? node.checked !== 'unchecked'
+    : node.checked !== 'checked'
+
+  if (!matchesTab && filteredChildren.length === 0) return null
+
+  return {
+    ...node,
+    tokens: node.is_dir
+      ? filteredChildren.reduce((sum, child) => sum + child.tokens, 0)
+      : node.tokens,
+    children: filteredChildren
+  }
+}
+
+function mergeTreeOrder(fullNode: TreeData, reorderedNode: TreeData): TreeData {
+  if (!fullNode.children.length) return { ...fullNode, children: [] }
+
+  const fullChildMap = new Map(fullNode.children.map((child) => [child.id, child]))
+  const visibleChildIds = new Set(reorderedNode.children.map((child) => child.id))
+  const reorderedVisibleChildren = reorderedNode.children.map((child) => {
+    const fullChild = fullChildMap.get(child.id)
+    return fullChild ? mergeTreeOrder(fullChild, child) : child
+  })
+
+  let visibleIndex = 0
+  const mergedChildren = fullNode.children.map((child) => {
+    if (!visibleChildIds.has(child.id)) return child
+    const nextVisibleChild = reorderedVisibleChildren[visibleIndex]
+    visibleIndex += 1
+    return nextVisibleChild ?? child
+  })
+
+  return {
+    ...fullNode,
+    children: mergedChildren
+  }
+}
+
+function collectTreeIds(node: TreeData): string[] {
+  const ids = [node.id]
+  for (const child of node.children) {
+    ids.push(...collectTreeIds(child))
+  }
+  return ids
+}
+
 function App() {
   const [projectPath, setProjectPath] = useState('')
   const [treeData, setTreeData] = useState<TreeData | null>(null)
+  const [activeTab, setActiveTab] = useState<SidebarTab>('selected')
+  const [treeLoadState, setTreeLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [treeLoadError, setTreeLoadError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isReloading, setIsReloading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -69,12 +139,17 @@ function App() {
     }
   }, [])
 
-  async function loadProjectFromPath(rawPath: string): Promise<void> {
+  async function loadProjectFromPath(rawPath: string, options?: { preserveTab?: boolean }): Promise<void> {
     // Strip trailing _codebase if accidentally dropped
     const normalized = rawPath.replace(/\\_codebase$/, '').replace(/\/_codebase$/, '')
 
     setProjectPath(normalized)
     setTreeData(null)
+    setTreeLoadState('loading')
+    setTreeLoadError(null)
+    if (!options?.preserveTab) {
+      setActiveTab('selected')
+    }
     setStats(null)
     setLogs((prev) => [...prev, `Đang load dự án: ${normalized}...`])
 
@@ -82,8 +157,11 @@ function App() {
     if (res.status === 'success' && res.tree) {
       const tree = res.tree
       setTreeData(tree)
+      setTreeLoadState('ready')
       setLogs((prev) => [...prev, `Load thành công dự án: ${tree.name}`])
     } else {
+      setTreeLoadState('error')
+      setTreeLoadError(res.error || 'Không thể load project')
       setLogs((prev) => [...prev, `Lỗi: ${res.error || 'Không thể load project'}`])
     }
   }
@@ -98,7 +176,7 @@ function App() {
   const handleReload = useCallback(async () => {
     if (!projectPath || isGenerating) return
     setIsReloading(true)
-    await loadProjectFromPath(projectPath)
+    await loadProjectFromPath(projectPath, { preserveTab: true })
     setIsReloading(false)
   }, [projectPath, isGenerating])
 
@@ -150,22 +228,29 @@ function App() {
   }, [])
 
   const handleTreeReorder = useCallback(async (newTreeData: TreeData) => {
-    setTreeData(newTreeData)
-    
-    // Hàm đệ quy bóc tách ID của cây thư mục theo đúng thứ tự hiển thị
-    const extractPriorityList = (node: TreeData): string[] => {
-      let list: string[] = [node.id]
-      if (node.children && node.children.length > 0) {
-        for (const child of node.children) {
-          list = list.concat(extractPriorityList(child))
-        }
-      }
-      return list
-    }
-    
-    const priorityList = extractPriorityList(newTreeData)
-    await window.api.update_priority(priorityList)
-  }, [])
+    if (!treeData) return
+
+    const mergedTree = mergeTreeOrder(treeData, newTreeData)
+    setTreeData(mergedTree)
+    await window.api.update_priority(collectTreeIds(newTreeData))
+  }, [treeData])
+
+  const filteredTreeData = useMemo(
+    () => filterTreeByTab(treeData, activeTab),
+    [treeData, activeTab]
+  )
+
+  const treeEmptyMessage = !projectPath
+    ? 'No folder opened.'
+    : treeLoadState === 'loading'
+      ? 'Loading tree...'
+      : treeLoadState === 'error'
+        ? (treeLoadError ?? 'Failed to load project.')
+        : !treeData
+          ? 'No tree data available.'
+      : activeTab === 'selected'
+        ? 'No checked items in this tab.'
+        : 'No unchecked items in this tab.'
 
   return (
     <div 
@@ -212,33 +297,7 @@ function App() {
         </div>
       )}
 
-      <Split sizes={[20, 80]} minSize={200} gutterSize={2} className="split">
-        <div className="h-full bg-bgPanel flex flex-col overflow-scroll">
-          <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-borderDark/20">
-            <div className="flex items-center gap-2 text-xs font-semibold text-textMuted uppercase tracking-wider">
-              <FolderSearch size={14} /> Explorer
-            </div>
-            
-            {/* Nút Reload chỉ hiện khi đã load thư mục */}
-            {projectPath && (
-              <button
-                onClick={handleReload}
-                disabled={isGenerating || isReloading}
-                className="text-textMuted hover:text-accent transition-colors disabled:opacity-50"
-                title="Tải lại danh sách file (Reload)"
-              >
-                <RefreshCw 
-                  size={14} 
-                  className={isReloading ? 'animate-spin' : ''} 
-                />
-              </button>
-            )}
-          </div>
-          <div className="flex-1 overflow-auto">
-            <TreeView data={treeData} onToggle={handleToggleNode} onReorder={handleTreeReorder} />
-          </div>
-        </div>
-
+      <Split sizes={[70, 30]} minSize={200} gutterSize={2} className="split">
         <div className="h-full bg-white overflow-y-auto px-10 py-8">
           <div className="max-w-4xl">
             <h1 className="text-2xl font-light text-textMain mb-8">Workspace Settings</h1>
@@ -402,6 +461,60 @@ function App() {
                 <div ref={logEndRef} />
               </div>
             </Card>
+          </div>
+        </div>
+
+        <div className="h-full bg-bgPanel flex flex-col overflow-hidden border-l border-borderDark/20">
+          <div className="flex border-b border-borderDark/20 bg-white shrink-0">
+            <button
+              className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
+                activeTab === 'selected'
+                  ? 'border-b-2 border-accent text-accent'
+                  : 'text-textMuted hover:bg-gray-50 hover:text-textMain'
+              }`}
+              onClick={() => setActiveTab('selected')}
+            >
+              <CheckCircle size={14} /> Selected
+            </button>
+            <button
+              className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
+                activeTab === 'ignored'
+                  ? 'border-b-2 border-danger text-danger'
+                  : 'text-textMuted hover:bg-gray-50 hover:text-textMain'
+              }`}
+              onClick={() => setActiveTab('ignored')}
+            >
+              <XCircle size={14} /> Ignored
+            </button>
+          </div>
+
+          <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-borderDark/20">
+            <div className="flex items-center gap-2 text-xs font-semibold text-textMuted uppercase tracking-wider">
+              <FolderSearch size={14} /> Explorer
+            </div>
+
+            {projectPath && (
+              <button
+                onClick={handleReload}
+                disabled={isGenerating || isReloading}
+                className="text-textMuted hover:text-accent transition-colors disabled:opacity-50"
+                title="Tải lại danh sách file (Reload)"
+              >
+                <RefreshCw
+                  size={14}
+                  className={isReloading ? 'animate-spin' : ''}
+                />
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-auto">
+            <TreeView
+              data={filteredTreeData}
+              onToggle={handleToggleNode}
+              onReorder={handleTreeReorder}
+              emptyMessage={treeEmptyMessage}
+            />
           </div>
         </div>
       </Split>

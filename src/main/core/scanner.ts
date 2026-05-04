@@ -112,14 +112,13 @@ export class FileScanner {
 
       if (entry.isDirectory()) {
         const isIgnored = this.ignoreRules.isGloballyIgnoredByRelPath(relPath, true)
-        const hasDescendant = this.ignoreRules.hasDescendantRule(relPath, this.ignoreRules.included_paths)
-        const isForceIncluded = this.ignoreRules.isExplicitlyIncluded(relPath) || hasDescendant
 
-        if (isIgnored && !isForceIncluded) {
+        if (isIgnored) {
           ignoredItems.push({ absPath, relPath, reason: 'global_ignore' })
           continue
         }
 
+        const hasDescendant = this.ignoreRules.hasDescendantRule(relPath, this.ignoreRules.included_paths)
         const isSelected = this.ignoreRules.isPathSelected(relPath)
         if (!isSelected && !hasDescendant) {
           ignoredItems.push({ absPath, relPath, reason: 'explicit_exclude' })
@@ -129,14 +128,12 @@ export class FileScanner {
         allFiles.push(relPath)
         await this._walkDir(relPath, categorizedFiles, ignoredItems, allFiles, callback, cancelRef)
       } else {
-        allFiles.push(relPath)
-
         if (this.ignoreRules.isGloballyIgnoredByRelPath(relPath, false)) {
-          if (!this.ignoreRules.isExplicitlyIncluded(relPath)) {
-            ignoredItems.push({ absPath, relPath, reason: 'global_ignore' })
-            continue
-          }
+          ignoredItems.push({ absPath, relPath, reason: 'global_ignore' })
+          continue
         }
+
+        allFiles.push(relPath)
 
         if (!this.ignoreRules.isPathSelected(relPath)) {
           ignoredItems.push({ absPath, relPath, reason: 'explicit_exclude' })

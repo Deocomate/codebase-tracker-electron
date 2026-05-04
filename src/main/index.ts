@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpcHandlers } from './ipcHandlers'
+import { registerIpcHandlers, cleanupWindowState } from './ipcHandlers'
 
 // Import icon for window taskbar/titlebar display
 import icon from '../../resources/icon.png?asset'
@@ -39,6 +39,14 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Lấy sẵn ID lưu vào một biến số nguyên để dành
+  const windowId = mainWindow.webContents.id;
+
+  // DỌN DẸP STATE KHI WINDOW ĐÓNG
+  mainWindow.on('closed', () => {
+    cleanupWindowState(windowId); // Dùng biến đã lưu, không chọc vào mainWindow nữa
   })
 
   // Load renderer

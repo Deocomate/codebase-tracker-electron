@@ -55,12 +55,30 @@ export class FileCombiner {
     const splitEnabled = ignoreRules.settings.split_config.enabled
     const splitCount = splitCountArg ?? ignoreRules.settings.split_config.split_count
 
+    callback?.('Cleaning up old outputs...', 0.05)
+    try {
+      await fs.promises.mkdir(this.outputDir, { recursive: true })
+      const existingItems = await fs.promises.readdir(this.outputDir, { withFileTypes: true })
+
+      for (const item of existingItems) {
+        if (item.name === 'settings.json') continue
+
+        const fullPath = path.join(this.outputDir, item.name)
+        if (item.isDirectory()) {
+          await fs.promises.rm(fullPath, { recursive: true, force: true })
+        } else {
+          await fs.promises.unlink(fullPath)
+        }
+      }
+    } catch (err) {
+      console.error('Error cleaning up output directory:', err)
+    }
+
     // Generate structure file
     if (allFiles) {
       callback?.('Generating structure tree...', 0.1)
 
       const tree = await this.treeBuilder.buildTree(this.projectPath, ignoreRules)
-      await fs.promises.mkdir(this.outputDir, { recursive: true })
       await fs.promises.writeFile(
         this.structureFile,
         `# ${path.basename(this.projectPath)} | Structure | ${timestamp}\n\n${tree}`,
@@ -98,13 +116,22 @@ export class FileCombiner {
 
         try {
           const writeStream = fs.createWriteStream(outputPath, { encoding: 'utf-8' })
-          const chars = await formatter.writeOutput(writeStream, configName, timestamp, textFiles)
-          writeStream.end()
+          let chars = 0
 
-          await new Promise<void>((resolve, reject) => {
+          // Attach error listener NGAY SAU createWriteStream để tránh unhandled error event
+          const finished = new Promise<void>((resolve, reject) => {
             writeStream.on('finish', resolve)
             writeStream.on('error', reject)
           })
+
+          try {
+            chars = await formatter.writeOutput(writeStream, configName, timestamp, textFiles)
+          } finally {
+            // Luôn luôn gọi end() dù có lỗi xảy ra
+            writeStream.end()
+          }
+
+          await finished
 
           generatedFiles.push(outputFilename)
           totalStats.total_chars += chars

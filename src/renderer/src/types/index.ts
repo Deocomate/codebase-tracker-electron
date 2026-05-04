@@ -5,6 +5,7 @@ export interface TreeData {
   is_ignored: boolean
   selectable: boolean
   checked: 'checked' | 'unchecked' | 'partial'
+  tokens: number
   children: TreeData[]
 }
 
