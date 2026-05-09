@@ -74,6 +74,14 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    app.quit()
+    // Ép tắt ngay lập tức, bỏ qua mọi tiến trình I/O đang treo
+    app.exit(0); 
+  }
+})
+
+// Đề phòng trường hợp người dùng MacOS bấm Cmd+Q
+app.on('before-quit', () => {
+  if (process.platform === 'darwin') {
+    app.exit(0);
   }
 })

@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import type { TreeData } from './types'
 
-function formatTokenCount(tokens: number): string {
+export function formatTokenCount(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return '0'
   if (tokens < 1000) return tokens.toLocaleString()
   if (tokens < 1_000_000) {
@@ -44,13 +44,15 @@ interface TreeNodeProps {
   node: TreeData
   onToggle?: (path: string, isChecked: boolean) => void
   onReorder?: (newTreeData: TreeData) => void
+  onAddIgnore?: (pattern: string) => void
   parentPath?: string
 }
 
 function SortableTreeNode({ 
   node, 
   onToggle, 
-  onReorder
+  onReorder,
+  onAddIgnore
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false)
   const {
@@ -98,6 +100,14 @@ function SortableTreeNode({
           node.is_ignored ? 'opacity-40 grayscale' : ''
         }`}
         onClick={() => node.is_dir && setExpanded(!expanded)}
+        onContextMenu={async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const pattern = await window.api.show_tree_context_menu(node.id, node.is_dir);
+          if (pattern && onAddIgnore) {
+            onAddIgnore(pattern);
+          }
+        }}
       >
         {/* Drag handle - only visible on hover */}
         <div 
@@ -150,6 +160,7 @@ function SortableTreeNode({
                 node={child} 
                 onToggle={onToggle}
                 onReorder={onReorder}
+                onAddIgnore={onAddIgnore}
                 parentPath={node.id}
               />
             ))}
@@ -164,10 +175,11 @@ interface TreeViewProps {
   data: TreeData | null
   onToggle?: (path: string, isChecked: boolean) => void
   onReorder?: (newTreeData: TreeData) => void
+  onAddIgnore?: (pattern: string) => void
   emptyMessage?: string
 }
 
-export default function TreeView({ data, onToggle, onReorder, emptyMessage }: TreeViewProps) {
+export default function TreeView({ data, onToggle, onReorder, onAddIgnore, emptyMessage }: TreeViewProps) {
   const [_, setActiveId] = useState<string | null>(null)
   
   const sensors = useSensors(
@@ -248,6 +260,7 @@ export default function TreeView({ data, onToggle, onReorder, emptyMessage }: Tr
           node={data} 
           onToggle={onToggle} 
           onReorder={onReorder}
+          onAddIgnore={onAddIgnore}
         />
       </div>
     </DndContext>

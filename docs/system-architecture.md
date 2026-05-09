@@ -39,6 +39,7 @@ main/
     fileSplitter.ts Header-preserving file chunking
     fileUtils.ts    isTextFile, readTextFile, path normalization
     clipboard.ts    Cross-platform file clipboard copy
+    path-resolver.ts WSL path mapping: Linux paths → Windows UNC paths
     formatters/
       baseFormatter.ts    Abstract formatter + comment stripping
       txtFormatter.ts     Plain text streaming
@@ -71,6 +72,8 @@ renderer/
 | `tree:updatePriority`        | R -> M    | Update priority root order.                  |
 | `settings:get`               | R -> M    | Retrieve UI preferences.                   |
 | `settings:save`              | R -> M    | Save UI preferences.                         |
+| `wsl:getConfig`              | R -> M    | Get WSL mode configuration.                  |
+| `wsl:saveConfig`             | R -> M    | Save WSL mode configuration.                 |
 | `generate:start`             | R -> M    | Begin async scan+combine.                    |
 | `generate:cancel`            | R -> M    | Set cancellation flag.                       |
 | `file:openExplorer`          | R -> M    | Open file in native file manager.            |

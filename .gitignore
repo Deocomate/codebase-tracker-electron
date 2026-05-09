@@ -60,3 +60,4 @@ lerna-debug.log*
 # (Thư mục do chính ứng dụng này sinh ra khi test)
 # =======================================================
 _codebase/
+prompts/

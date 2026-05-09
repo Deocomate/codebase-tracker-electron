@@ -6,7 +6,7 @@
   "author": "Minh Long",
   "homepage": "https://electron-vite.org",
   "scripts": {
-    "preclean": "node scripts/kill-electron.js",
+    "preclean": "node scripts/kill-electron.cjs",
     "clean": "npx rimraf dist out",
     "format": "prettier --write .",
     "lint": "eslint --cache .",

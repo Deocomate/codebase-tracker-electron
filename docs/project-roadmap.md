@@ -29,23 +29,32 @@
 | 6 | Allow multiple project windows simultaneously. | Planned |
 | 7 | Handle unhandled rejections from background `generate:start` promise and surface to renderer. | Done |
 
-## Phase 3 — Extensibility & DX
+## Phase 3 — WSL & Cross-Platform Support
 
 | # | Task | Status |
 |---|------|--------|
-| 8 | Extensible comment stripping (allow user-defined markers or language packs). | Planned |
-| 9 | Custom ignore pattern editor in UI (beyond `.gitignore`). | Planned |
-| 10 | Export templates / custom formatter plugins. | Planned |
-| 11 | Keyboard shortcuts (Ctrl+R reload, Ctrl+Enter generate, Esc cancel). | Planned |
+| 12 | WSL path mapping (Linux paths ↔ Windows UNC paths with auto-resolution). | Done |
+| 13 | WSL Base Path configuration UI with validation and error handling. | Done |
+| 14 | Persistent WSL settings in `settings.json` (schema v8). | Done |
+| 15 | Support both `\\wsl.localhost\` and `\\wsl$\` UNC path formats. | Done |
 
-## Phase 4 — Polish & Distribution
+## Phase 4 — Extensibility & DX
 
 | # | Task | Status |
 |---|------|--------|
-| 12 | Auto-updater integration (generic provider configured; needs real endpoint). | Planned |
-| 13 | Signed builds for macOS (notarize) and Windows (code signing). | Planned |
-| 14 | In-app onboarding / first-run tutorial. | Planned |
-| 15 | Telemetry / crash reporting (opt-in). | Planned |
+| 16 | Extensible comment stripping (allow user-defined markers or language packs). | Planned |
+| 17 | Custom ignore pattern editor in UI (beyond `.gitignore`). | Planned |
+| 18 | Export templates / custom formatter plugins. | Planned |
+| 19 | Keyboard shortcuts (Ctrl+R reload, Ctrl+Enter generate, Esc cancel). | Planned |
+
+## Phase 5 — Polish & Distribution
+
+| # | Task | Status |
+|---|------|--------|
+| 20 | Auto-updater integration (generic provider configured; needs real endpoint). | Planned |
+| 21 | Signed builds for macOS (notarize) and Windows (code signing). | Planned |
+| 22 | In-app onboarding / first-run tutorial. | Planned |
+| 23 | Telemetry / crash reporting (opt-in). | Planned |
 
 ## Milestones
 

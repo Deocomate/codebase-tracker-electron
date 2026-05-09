@@ -47,7 +47,7 @@ export class TreeBuilder {
       if (entry.name.startsWith('.') && entry.isDirectory()) continue
 
       const relPath = path.relative(projectRoot, path.join(dirPath, entry.name)).replace(/\\/g, '/')
-      if (ignoreRules.isGloballyIgnoredByRelPath(relPath, entry.isDirectory())) continue
+      if (ignoreRules.isBaseIgnored(relPath, entry.isDirectory())) continue
 
       filtered.push(entry)
     }

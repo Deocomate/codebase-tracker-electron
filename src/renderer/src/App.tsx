@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement, type ReactNode } from 'react'
 import Split from 'react-split'
 import {
   FolderSearch,
@@ -12,7 +12,11 @@ import {
   RefreshCw
 } from 'lucide-react'
 import TreeView from './TreeView'
+import SearchSidebar from './SearchSidebar'
 import type { TreeData, Stats, OutputFormats, LoadProjectResponse } from './types'
+
+// Lấy WSL config mặc định từ localStorage để giữ cấu hình trên toàn App
+const defaultWsl = JSON.parse(localStorage.getItem('globalWslConfig') || '{"enabled":false,"basePath":"\\\\\\\\wsl.localhost\\\\Ubuntu-24.04"}');
 
 type SidebarTab = 'selected' | 'ignored'
 
@@ -81,8 +85,26 @@ function collectTreeIds(node: TreeData): string[] {
   return ids
 }
 
-function App() {
+interface CardProps {
+  title: string
+  children: ReactNode
+  className?: string
+}
+
+function Card({ title, children, className = '' }: CardProps): ReactElement {
+  return (
+    <div className={`mb-8 ${className}`}>
+      <h3 className="text-sm font-semibold text-textMain mb-3 pb-1 border-b border-borderDark">
+        {title}
+      </h3>
+      <div className="px-1">{children}</div>
+    </div>
+  )
+}
+
+function App(): ReactElement {
   const [projectPath, setProjectPath] = useState('')
+  const [projectPathInput, setProjectPathInput] = useState('')
   const [treeData, setTreeData] = useState<TreeData | null>(null)
   const [activeTab, setActiveTab] = useState<SidebarTab>('selected')
   const [treeLoadState, setTreeLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
@@ -100,12 +122,34 @@ function App() {
   })
   const [splitEnabled, setSplitEnabled] = useState(true)
   const [splitCount, setSplitCount] = useState(5)
+  const [searchKeywords, setSearchKeywords] = useState<string[]>([])
+  const [ignorePatterns, setIgnorePatterns] = useState<string[]>([])
+  const [searchKeywordStats, setSearchKeywordStats] = useState<Record<string, number>>({})
   const [stats, setStats] = useState<Stats | null>(null)
+  const [wslConfig, setWslConfig] = useState(defaultWsl)
   const logEndRef = useRef<HTMLDivElement>(null)
+  const searchStatsRequestRef = useRef(0)
+
+  const updateSearchStats = useCallback(async (keywords: string[]): Promise<void> => {
+    const normalizedKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean)
+    if (normalizedKeywords.length === 0) {
+      searchStatsRequestRef.current += 1
+      setSearchKeywordStats({})
+      return
+    }
+
+    const requestId = ++searchStatsRequestRef.current
+    const response = await window.api.get_search_stats(normalizedKeywords)
+    if (searchStatsRequestRef.current !== requestId) return
+
+    setSearchKeywordStats(response.stats ?? {})
+  }, [])
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
+
+
 
   // Setup IPC listeners và Drag & Drop
   useEffect(() => {
@@ -147,21 +191,52 @@ function App() {
     setTreeData(null)
     setTreeLoadState('loading')
     setTreeLoadError(null)
+    searchStatsRequestRef.current += 1
+    setSearchKeywords([])
+    setIgnorePatterns([])
+    setSearchKeywordStats({})
     if (!options?.preserveTab) {
       setActiveTab('selected')
     }
     setStats(null)
     setLogs((prev) => [...prev, `Đang load dự án: ${normalized}...`])
 
-    const res: LoadProjectResponse = await window.api.load_project(normalized)
+    const res: LoadProjectResponse = await window.api.load_project(normalized, wslConfig)
     if (res.status === 'success' && res.tree) {
+      setProjectPath(res.project_path || normalized)
+      setProjectPathInput(res.project_path || normalized)
       const tree = res.tree
       setTreeData(tree)
       setTreeLoadState('ready')
+
+      // ---> THÊM ĐOẠN NÀY ĐỂ ĐỒNG BỘ SPLITTING SETTINGS <---
+      const settingsRes = await window.api.get_settings()
+      if (settingsRes.status === 'success' && settingsRes.ui_preferences) {
+        const { selected_formats, split_enabled, split_count } = settingsRes.ui_preferences
+        const newFormats = { txt: false, json: false, md: false, xml: false }
+        selected_formats.forEach(f => { if (f in newFormats) newFormats[f as keyof OutputFormats] = true })
+        setFormats(newFormats)
+        setSplitEnabled(split_enabled)
+        setSplitCount(split_count)
+      }
+      // ---------------------------------------------------
       setLogs((prev) => [...prev, `Load thành công dự án: ${tree.name}`])
+
+      const [keywordRes, ignoreRes] = await Promise.all([
+        window.api.get_search_keywords(),
+        window.api.get_ignore_patterns()
+      ])
+      const loadedKeywords = Array.isArray(keywordRes.keywords) ? keywordRes.keywords : []
+      const loadedIgnorePatterns = Array.isArray(ignoreRes.patterns) ? ignoreRes.patterns : []
+      setSearchKeywords(loadedKeywords)
+      setIgnorePatterns(loadedIgnorePatterns)
+      void updateSearchStats(loadedKeywords)
     } else {
       setTreeLoadState('error')
       setTreeLoadError(res.error || 'Không thể load project')
+      setSearchKeywords([])
+      setIgnorePatterns([])
+      setSearchKeywordStats({})
       setLogs((prev) => [...prev, `Lỗi: ${res.error || 'Không thể load project'}`])
     }
   }
@@ -186,8 +261,8 @@ function App() {
     setProgress(0)
     setStats(null)
     const selectedFormats = Object.keys(formats).filter((k) => formats[k as keyof OutputFormats])
-    await window.api.start_generation(selectedFormats, splitEnabled, splitCount)
-  }, [projectPath, formats, splitEnabled, splitCount])
+    await window.api.start_generation(selectedFormats, splitEnabled, splitCount, searchKeywords)
+  }, [projectPath, formats, splitEnabled, splitCount, searchKeywords])
 
   const handleToggleNode = useCallback(async (path: string, isChecked: boolean): Promise<void> => {
     const res = await window.api.toggle_tree_node(path, isChecked)
@@ -196,14 +271,61 @@ function App() {
     }
   }, [])
 
-  const Card = ({ title, children, className = '' }: { title: string; children: React.ReactNode; className?: string }) => (
-    <div className={`mb-8 ${className}`}>
-      <h3 className="text-sm font-semibold text-textMain mb-3 pb-1 border-b border-borderDark">
-        {title}
-      </h3>
-      <div className="px-1">{children}</div>
-    </div>
-  )
+  const handleAddKeyword = useCallback(async (keyword: string): Promise<void> => {
+    if (!projectPath || isGenerating) return
+
+    const res = await window.api.add_search_keyword(keyword)
+    if (res.error) {
+      setLogs((prev) => [...prev, `Lỗi: ${res.error}`])
+      return
+    }
+
+    if (Array.isArray(res.keywords)) {
+      setSearchKeywords(res.keywords)
+      void updateSearchStats(res.keywords)
+    }
+  }, [projectPath, isGenerating, updateSearchStats])
+
+  const handleRemoveKeyword = useCallback(async (keyword: string): Promise<void> => {
+    if (!projectPath || isGenerating) return
+
+    const res = await window.api.remove_search_keyword(keyword)
+    if (res.error) {
+      setLogs((prev) => [...prev, `Lỗi: ${res.error}`])
+      return
+    }
+
+    if (Array.isArray(res.keywords)) {
+      setSearchKeywords(res.keywords)
+      void updateSearchStats(res.keywords)
+    }
+  }, [projectPath, isGenerating, updateSearchStats])
+
+  const handleAddIgnorePattern = useCallback(async (pattern: string): Promise<void> => {
+    if (!projectPath || isGenerating) return
+
+    const res = await window.api.add_ignore_pattern(pattern)
+    if (res.error) {
+      setLogs((prev) => [...prev, `Lỗi: ${res.error}`])
+      return
+    }
+
+    if (Array.isArray(res.patterns)) setIgnorePatterns(res.patterns)
+    if (res.tree) setTreeData(res.tree)
+  }, [projectPath, isGenerating])
+
+  const handleRemoveIgnorePattern = useCallback(async (pattern: string): Promise<void> => {
+    if (!projectPath || isGenerating) return
+
+    const res = await window.api.remove_ignore_pattern(pattern)
+    if (res.error) {
+      setLogs((prev) => [...prev, `Lỗi: ${res.error}`])
+      return
+    }
+
+    if (Array.isArray(res.patterns)) setIgnorePatterns(res.patterns)
+    if (res.tree) setTreeData(res.tree)
+  }, [projectPath, isGenerating])
 
   const handleOpenFolder = useCallback(async () => {
     await window.api.open_output_folder()
@@ -226,6 +348,31 @@ function App() {
   const handleCancel = useCallback(async () => {
     await window.api.cancel_generation()
   }, [])
+
+  const handleUpdateSettings = async (
+    newFormats: OutputFormats,
+    newSplitEnabled: boolean,
+    newSplitCount: number
+  ) => {
+    setFormats(newFormats)
+    setSplitEnabled(newSplitEnabled)
+    setSplitCount(newSplitCount)
+    
+    if (projectPath) {
+      const selectedFormats = Object.keys(newFormats).filter((k) => newFormats[k as keyof OutputFormats])
+      await window.api.save_settings(selectedFormats, newSplitEnabled, newSplitCount)
+    }
+  }
+
+  const handleWslConfigChange = async (enabled: boolean, basePath: string) => {
+    const newConfig = { enabled, basePath }
+    setWslConfig(newConfig)
+    localStorage.setItem('globalWslConfig', JSON.stringify(newConfig))
+    
+    if (projectPath) {
+       await window.api.save_wsl_config(enabled, basePath)
+    }
+  }
 
   const handleTreeReorder = useCallback(async (newTreeData: TreeData) => {
     if (!treeData) return
@@ -297,31 +444,72 @@ function App() {
         </div>
       )}
 
-      <Split sizes={[70, 30]} minSize={200} gutterSize={2} className="split">
-        <div className="h-full bg-white overflow-y-auto px-10 py-8">
-          <div className="max-w-4xl">
+      <Split sizes={[25, 50, 25]} minSize={[250, 400, 250]} gutterSize={2} className="split w-full h-full">
+        <SearchSidebar
+          keywords={searchKeywords}
+          keywordStats={searchKeywordStats}
+          ignorePatterns={ignorePatterns}
+          onAddKeyword={handleAddKeyword}
+          onRemoveKeyword={handleRemoveKeyword}
+          onAddIgnorePattern={handleAddIgnorePattern}
+          onRemoveIgnorePattern={handleRemoveIgnorePattern}
+          disabled={isGenerating || !projectPath || treeLoadState !== 'ready'}
+        />
+
+        <main className="h-full bg-white overflow-y-auto px-8 py-8">
+          <div className="max-w-5xl mx-auto">
             <h1 className="text-2xl font-light text-textMain mb-8">Workspace Settings</h1>
 
             <Card title="Project Path">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={projectPath}
-                  readOnly
-                  placeholder="Kéo thả thư mục vào đây hoặc bấm Browse..."
-                  className="flex-1 bg-white border border-borderDark rounded-sm px-3 py-1.5 text-[13px] focus:outline-none focus:border-accent transition"
-                />
-                <button
-                  onClick={handleBrowse}
-                  disabled={isGenerating}
-                  className="bg-[#e4e6e8] hover:bg-[#d4d6d8] text-textMain px-4 py-1.5 rounded-sm text-[13px] transition disabled:opacity-50"
-                >
-                  Browse...
-                </button>
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={projectPathInput}
+                    onChange={(e) => setProjectPathInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && loadProjectFromPath(projectPathInput)}
+                    placeholder="Dán đường dẫn thư mục vào đây (rồi nhấn Enter) hoặc bấm Browse..."
+                    className="flex-1 bg-white border border-borderDark rounded-sm px-3 py-1.5 text-[13px] focus:outline-none focus:border-accent transition"
+                  />
+                  <button
+                    onClick={handleBrowse}
+                    disabled={isGenerating}
+                    className="bg-[#e4e6e8] hover:bg-[#d4d6d8] text-textMain px-4 py-1.5 rounded-sm text-[13px] transition disabled:opacity-50"
+                  >
+                    Browse...
+                  </button>
+                </div>
               </div>
             </Card>
 
-            <div className="grid grid-cols-2 gap-8">
+            <Card title="WSL Configuration">
+              <div className="flex flex-col gap-3">
+                <label className="flex items-center gap-2 cursor-pointer w-max">
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 border-borderDark text-accent focus:ring-accent"
+                    checked={wslConfig.enabled}
+                    onChange={(e) => handleWslConfigChange(e.target.checked, wslConfig.basePath)}
+                  />
+                  <span className="text-[13px] text-textMain font-medium">Enable WSL Path Resolver</span>
+                </label>
+                
+                {wslConfig.enabled && (
+                  <div className="flex items-center gap-2 pl-5">
+                    <span className="text-[13px] text-textMuted w-24">Base Path:</span>
+                    <input
+                      type="text"
+                      value={wslConfig.basePath}
+                      onChange={(e) => handleWslConfigChange(wslConfig.enabled, e.target.value)}
+                      placeholder="\\\\wsl.localhost\\Ubuntu-24.04"
+                      className="flex-1 bg-white border border-borderDark rounded-sm px-3 py-1 text-[13px] focus:outline-none focus:border-accent transition"
+                    />
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            <div className="grid grid-cols-1 2xl:grid-cols-2 gap-8">
               <Card title="Export Formats">
                 <div className="flex flex-wrap gap-4 mt-1">
                   {['txt', 'json', 'md', 'xml'].map((fmt) => (
@@ -330,9 +518,7 @@ function App() {
                         type="checkbox"
                         className="w-3.5 h-3.5 border-borderDark text-accent focus:ring-accent"
                         checked={formats[fmt as keyof typeof formats]}
-                        onChange={(e) =>
-                          setFormats({ ...formats, [fmt]: e.target.checked })
-                        }
+                        onChange={(e) => handleUpdateSettings({ ...formats, [fmt]: e.target.checked }, splitEnabled, splitCount)}
                       />
                       <span className="uppercase text-[13px] text-textMain">{fmt}</span>
                     </label>
@@ -347,7 +533,7 @@ function App() {
                       type="checkbox"
                       className="w-3.5 h-3.5 border-borderDark text-accent focus:ring-accent"
                       checked={splitEnabled}
-                      onChange={(e) => setSplitEnabled(e.target.checked)}
+                      onChange={(e) => handleUpdateSettings(formats, e.target.checked, splitCount)}
                     />
                     <span className="text-[13px] text-textMain">Enable split</span>
                   </label>
@@ -358,7 +544,7 @@ function App() {
                       min={2}
                       max={20}
                       value={splitCount}
-                      onChange={(e) => setSplitCount(Number(e.target.value))}
+                      onChange={(e) => handleUpdateSettings(formats, splitEnabled, Number(e.target.value))}
                       disabled={!splitEnabled}
                       className="w-16 bg-white border border-borderDark rounded-sm px-2 py-1 text-[13px] focus:border-accent disabled:bg-gray-50 disabled:opacity-50"
                     />
@@ -462,9 +648,9 @@ function App() {
               </div>
             </Card>
           </div>
-        </div>
+        </main>
 
-        <div className="h-full bg-bgPanel flex flex-col overflow-hidden border-l border-borderDark/20">
+        <aside className="h-full bg-bgPanel flex flex-col overflow-hidden border-l border-borderDark/20">
           <div className="flex border-b border-borderDark/20 bg-white shrink-0">
             <button
               className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
@@ -513,11 +699,14 @@ function App() {
               data={filteredTreeData}
               onToggle={handleToggleNode}
               onReorder={handleTreeReorder}
+              onAddIgnore={handleAddIgnorePattern}
               emptyMessage={treeEmptyMessage}
             />
           </div>
-        </div>
+        </aside>
       </Split>
+
+
     </div>
   )
 }

@@ -116,6 +116,16 @@ Root configs:
 - macOS: AppleScript `set the clipboard to { POSIX file ... }`.
 - Linux: `wl-copy` (Wayland) -> `xclip` (X11) -> plain text fallback.
 
+### `path-resolver.ts` — WSL Path Mapping
+- Converts Linux/WSL paths to Windows UNC paths for seamless cross-platform support.
+- `resolveWorkspacePath(inputPath, wslConfig)`: Main resolver function.
+  - If WSL disabled OR path is Windows format (e.g., `C:\...`), returns path unchanged.
+  - If path starts with `/` (Linux format), converts to Windows UNC: `/home/user/project` → `\\wsl.localhost\Ubuntu-24.04\home\user\project`.
+- `isValidWslBasePath(basePath)`: Validates format starts with `\\wsl.localhost\` or `\\wsl$\`.
+- `formatWslBasePath(basePath)`: Trims and removes trailing backslash for consistent handling.
+- Integrated into `ipcHandlers.ts` `project:load` to resolve paths before file system access.
+- Settings persisted in `settings.json` with schema version 8: `wsl: { enabled: boolean; basePath: string }`.
+
 ## Formatters (`src/main/core/formatters/`)
 
 ### `baseFormatter.ts` — `BaseFormatter`

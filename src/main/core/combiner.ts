@@ -10,6 +10,7 @@ type ProgressCallback = (message: string, progress: number) => void
 interface FileEntry {
   absPath: string
   relPath: string
+  source?: 'global' | 'search'
 }
 
 export interface CombinerStats {
