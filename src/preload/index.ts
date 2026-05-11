@@ -13,7 +13,7 @@ export interface IpcApi {
 
   // Settings
   get_settings: () => Promise<SettingsResponse>
-  save_settings: (selectedFormats: string[], splitEnabled: boolean, splitCount: number) => Promise<SimpleResponse>
+  save_settings: (selectedFormats: string[], splitEnabled: boolean, splitCount: number, instructionsEnabled?: boolean) => Promise<SimpleResponse>
 
   // WSL Configuration
   get_wsl_config: () => Promise<WslConfigResponse>

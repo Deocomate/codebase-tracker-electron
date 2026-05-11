@@ -31,6 +31,7 @@ export interface LoadProjectResponse {
   error?: string
   project_path?: string
   tree?: TreeData
+  attention_patterns?: string[]
 }
 
 export interface GenerationResponse {

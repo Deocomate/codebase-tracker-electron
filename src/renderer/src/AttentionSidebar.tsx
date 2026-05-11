@@ -51,7 +51,7 @@ export default function AttentionSidebar({
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [ignoreInput, setIgnoreInput] = useState('')
   const [isCopying, setIsCopying] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const previewRequestRef = useRef(0)
 
   useEffect(() => {

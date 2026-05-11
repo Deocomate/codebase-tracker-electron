@@ -15,10 +15,10 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
-    "build": "npm run clean && npm run typecheck && electron-vite build && electron-builder --win",
+    "build": "npm run clean && npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run clean && npm run build && electron-builder --dir",
-    "build:win": "npm run clean && npm run build && electron-builder --win",
+    "build:unpack": "npm run build && electron-builder --dir",
+    "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run clean && electron-vite build && electron-builder --mac",
     "build:linux": "npm run clean && electron-vite build && electron-builder --linux"
   },

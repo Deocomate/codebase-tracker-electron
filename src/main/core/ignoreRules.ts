@@ -174,7 +174,7 @@ export class IgnoreRules {
     }
     if ((this.settings.schema_version ?? 4) < 5) {
       this.settings.schema_version = 5
-      this.settings.search_keywords = []
+      mutableSettings.search_keywords = []
     }
     if ((this.settings.schema_version ?? 5) < 6) {
       this.settings.schema_version = 6
@@ -182,7 +182,7 @@ export class IgnoreRules {
     }
     if ((this.settings.schema_version ?? 6) < 7) {
       this.settings.schema_version = 7
-      this.settings.search_cache = {}
+      mutableSettings.search_cache = {}
     }
     if ((this.settings.schema_version ?? 7) < 8) {
       this.settings.schema_version = 8
