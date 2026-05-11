@@ -131,7 +131,7 @@ export function registerIpcHandlers(): void {
         status: 'success',
         project_path: actualFsPath,
         tree: (result as any)?.tree,
-        cached_search_stats: (result as any)?.cached_search_stats || {}
+        attention_patterns: (result as any)?.attention_patterns || []
       }
     } catch (err: unknown) {
       // Clean up worker if it was started but INIT threw
@@ -210,13 +210,14 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('settings:save', async (event, args: { selectedFormats: string[]; splitEnabled: boolean; splitCount: number }) => {
+  ipcMain.handle('settings:save', async (event, args: { selectedFormats: string[]; splitEnabled: boolean; splitCount: number; instructionsEnabled?: boolean }) => {
     const state = getWindowState(event)
     try {
       await workerSend(state, 'SAVE_SETTINGS', {
         selectedFormats: args.selectedFormats,
         splitEnabled: args.splitEnabled,
-        splitCount: args.splitCount
+        splitCount: args.splitCount,
+        instructionsEnabled: args.instructionsEnabled
       })
       return { status: 'success' }
     } catch (err: unknown) {
@@ -250,81 +251,45 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('search:addKeyword', async (event, keyword: string) => {
-    const state = getWindowState(event)
-    try {
-      const result = await workerSend(state, 'SEARCH_ADD_KEYWORD', { keyword }) as Record<string, unknown>
-      return result
-    } catch (err: unknown) {
-      return { keywords: [], error: getErrorMessage(err) }
-    }
-  })
+  // ---- Attention Context ----
 
-  ipcMain.handle('search:removeKeyword', async (event, keyword: string) => {
+  ipcMain.handle('attention:preview', async (event, patterns: string[]) => {
     const state = getWindowState(event)
     try {
-      const result = await workerSend(state, 'SEARCH_REMOVE_KEYWORD', { keyword }) as Record<string, unknown>
-      return result
-    } catch (err: unknown) {
-      return { keywords: [], error: getErrorMessage(err) }
-    }
-  })
-
-  ipcMain.handle('search:getMatchCount', async (event, keywords: string[]) => {
-    const state = getWindowState(event)
-    try {
-      const result = await workerSend(state, 'SEARCH_GET_MATCH_COUNT', { keywords }) as Record<string, unknown>
-      return result
-    } catch (err: unknown) {
-      return { count: 0, error: getErrorMessage(err) }
-    }
-  })
-
-  ipcMain.handle('search:preview', async (event, args: { keyword: string; maxResults?: number }) => {
-    const state = getWindowState(event)
-    try {
-      const result = await workerSend(state, 'SEARCH_PREVIEW', {
-        keyword: args.keyword,
-        maxResults: args.maxResults
-      }) as Record<string, unknown>
+      const result = await workerSend(state, 'ATTENTION_PREVIEW', { patterns }) as Record<string, unknown>
       return result
     } catch (err: unknown) {
       return { files: [], error: getErrorMessage(err) }
     }
   })
 
-  ipcMain.handle('search:cancelPreview', async (event) => {
+  ipcMain.handle('prompt:getInstruction', async (event) => {
     const state = getWindowState(event)
     try {
-      await workerSend(state, 'CANCEL_SEARCH_PREVIEW')
-      return { status: 'cancelled' }
-    } catch {
-      return { status: 'cancelled' }
+      const result = await workerSend(state, 'READ_PROMPT_FILE') as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { content: '', error: getErrorMessage(err) }
     }
   })
 
-  ipcMain.handle('search:getStats', async (event, args: string[] | { keywords: string[]; quickOnly?: boolean }) => {
+  ipcMain.handle('prompt:resetInstruction', async (event) => {
     const state = getWindowState(event)
     try {
-      const keywords = Array.isArray(args) ? args : args?.keywords
-      const quickOnly = !Array.isArray(args) && Boolean(args?.quickOnly)
-      const result = await workerSend(state, 'SEARCH_STATS', {
-        keywords,
-        quickOnly
-      }) as Record<string, unknown>
+      const result = await workerSend(state, 'RESET_PROMPT_FILE') as Record<string, unknown>
       return result
     } catch (err: unknown) {
-      return { stats: {}, error: getErrorMessage(err) }
+      return { content: '', error: getErrorMessage(err) }
     }
   })
 
-  ipcMain.handle('search:getKeywords', async (event) => {
+  ipcMain.handle('attention:savePatterns', async (event, patterns: string[]) => {
     const state = getWindowState(event)
     try {
-      const result = await workerSend(state, 'SEARCH_GET_KEYWORDS') as Record<string, unknown>
+      const result = await workerSend(state, 'SAVE_ATTENTION_PATTERNS', { patterns }) as Record<string, unknown>
       return result
     } catch (err: unknown) {
-      return { keywords: [], error: getErrorMessage(err) }
+      return { patterns: [], error: getErrorMessage(err) }
     }
   })
 
@@ -371,7 +336,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('generate:start', async (event, args: { selectedFormats: string[]; splitEnabled: boolean; splitCount: number; searchKeywords?: string[] }) => {
+  ipcMain.handle('generate:start', async (event, args: { selectedFormats: string[]; splitEnabled: boolean; splitCount: number; attentionPatterns?: string[] }) => {
     const state = getWindowState(event)
     if (!state.workerManager || !state.workerManager.isRunning) {
       return { error: 'Project chưa được load' }
@@ -389,7 +354,7 @@ export function registerIpcHandlers(): void {
           selectedFormats: args.selectedFormats,
           splitEnabled: args.splitEnabled,
           splitCount: args.splitCount,
-          searchKeywords: args.searchKeywords
+          attentionPatterns: args.attentionPatterns
         }, progressCallback) as Record<string, unknown>
 
         const success = Boolean(result?.success)
@@ -458,6 +423,20 @@ export function registerIpcHandlers(): void {
       return { status: 'success' }
     } catch {
       return { error: 'File cấu hình chưa tồn tại' }
+    }
+  })
+
+  ipcMain.handle('file:openInstructionsFile', async (event) => {
+    const state = getWindowState(event)
+    if (!state.workerManager) return { error: 'Chưa load dự án' }
+
+    const instructionsPath = path.join(state.workerManager.projectPath, '_codebase', 'instructions.md')
+    try {
+      await fs.access(instructionsPath)
+      shell.openPath(instructionsPath)
+      return { status: 'success' }
+    } catch {
+      return { error: 'File instructions.md chưa tồn tại' }
     }
   })
 

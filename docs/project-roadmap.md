@@ -5,7 +5,8 @@
 - [x] Electron 39 + React 19 + Tailwind v4 scaffold.
 - [x] Directory scan with `.gitignore` and built-in ignore rule support.
 - [x] Interactive tree with tri-state checkboxes and drag-to-reorder.
-- [x] Right-side selection sidebar with checked/unchecked tabs and token badges.
+- [x] Attention sidebar with glob pattern input, live preview, AI instruction copy, and ignore management.
+- [x] LLM instructions injection (`instructions.md`) in all export formats with UI toggle and editor integration.
 - [x] Export to TXT, JSON, Markdown, XML.
 - [x] Auto-splitting for TXT output.
 - [x] Cross-platform clipboard file copy.

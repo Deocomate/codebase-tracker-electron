@@ -196,10 +196,10 @@ On success: Update app state, show toast, close modal
 
 ## Settings Persistence
 
-**Schema v8 Structure**:
+**Schema v9 Structure** (note: later migrated to v10 for instructions support):
 ```json
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "wsl": {
     "enabled": false,
     "basePath": "\\\\wsl.localhost\\Ubuntu-24.04"
@@ -209,8 +209,8 @@ On success: Update app state, show toast, close modal
 ```
 
 **Migration**: 
-- Old settings (v7) automatically migrated to v8 on first load
-- New projects start with v8 schema
+- Old settings automatically migrated to v9 on first load
+- New projects start with v9 schema
 - Default: WSL disabled, standard base path
 
 ## Architecture Integration

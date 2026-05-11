@@ -9,7 +9,7 @@ type ScanCallback = (message: string, progress: number) => void
 interface FileEntry {
   absPath: string
   relPath: string
-  source?: 'global' | 'search'
+  isAttention?: boolean
 }
 
 export class FileScanner {
@@ -142,7 +142,7 @@ export class FileScanner {
         }
 
         if (isTextFile(relPath)) {
-          categorizedFiles.codebase.push({ absPath, relPath, source: 'global' })
+          categorizedFiles.codebase.push({ absPath, relPath })
         } else {
           ignoredItems.push({ absPath, relPath, reason: 'binary' })
         }

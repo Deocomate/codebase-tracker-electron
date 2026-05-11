@@ -19,14 +19,11 @@ export interface IpcApi {
   get_wsl_config: () => Promise<WslConfigResponse>
   save_wsl_config: (enabled: boolean, basePath: string) => Promise<SimpleResponse>
 
-  // Search Context
-  add_search_keyword: (keyword: string) => Promise<SearchKeywordsResponse>
-  remove_search_keyword: (keyword: string) => Promise<SearchKeywordsResponse>
-  get_search_match_count: (keywords: string[]) => Promise<SearchMatchCountResponse>
-  search_preview: (keyword: string, maxResults?: number) => Promise<SearchPreviewResponse>
-  cancel_search_preview: () => Promise<SimpleResponse>
-  get_search_stats: (keywords: string[], options?: SearchStatsOptions) => Promise<SearchStatsResponse>
-  get_search_keywords: () => Promise<SearchKeywordsResponse>
+  // Attention Context
+  preview_attention: (patterns: string[]) => Promise<AttentionPreviewResponse>
+  get_prompt_instruction: () => Promise<PromptInstructionResponse>
+  reset_prompt_instruction: () => Promise<PromptInstructionResponse>
+  save_attention_patterns: (patterns: string[]) => Promise<SaveAttentionPatternsResponse>
 
   // Dynamic Global Ignore
   add_ignore_pattern: (pattern: string) => Promise<IgnorePatternMutationResponse>
@@ -39,7 +36,7 @@ export interface IpcApi {
     selectedFormats: string[],
     splitEnabled: boolean,
     splitCount: number,
-    searchKeywords?: string[]
+    attentionPatterns?: string[]
   ) => Promise<GenerationStartResponse>
   cancel_generation: () => Promise<SimpleResponse>
 
@@ -47,6 +44,7 @@ export interface IpcApi {
   open_file_explorer: (path: string) => Promise<SimpleResponse>
   open_output_folder: () => Promise<SimpleResponse>
   open_settings_file: () => Promise<SimpleResponse>
+  open_instructions_file: () => Promise<SimpleResponse>
   auto_copy_files: (fileNames: string[]) => Promise<SimpleResponse>
   clear_output: () => Promise<SimpleResponse>
 
@@ -66,35 +64,25 @@ export interface SimpleResponse {
   message?: string
 }
 
-export interface SearchKeywordsResponse {
-  keywords: string[]
-  error?: string
-}
-
-export interface SearchMatchCountResponse {
-  count: number
-  error?: string
-}
-
-export interface SearchFileEntry {
+export interface AttentionFileEntry {
   absPath: string
   relPath: string
-  isDir?: boolean
-  source?: 'global' | 'search' | 'ignore'
+  tokens?: number
 }
 
-export interface SearchPreviewResponse {
-  files: SearchFileEntry[]
+export interface AttentionPreviewResponse {
+  files: AttentionFileEntry[]
   error?: string
 }
 
-export interface SearchStatsResponse {
-  stats: Record<string, number>
+export interface PromptInstructionResponse {
+  content: string
   error?: string
 }
 
-export interface SearchStatsOptions {
-  quickOnly?: boolean
+export interface SaveAttentionPatternsResponse {
+  patterns: string[]
+  error?: string
 }
 
 export interface IpcTreeNode {
@@ -113,6 +101,7 @@ export interface LoadProjectResponse {
   error?: string
   project_path?: string
   tree?: IpcTreeNode
+  attention_patterns?: string[]
 }
 
 export interface TreeMutationResponse {
@@ -130,6 +119,9 @@ export interface SettingsResponse {
     split_count: number
   }
   priority_roots?: string[]
+  instructions_config?: {
+    enabled: boolean
+  }
 }
 
 export interface WslConfigResponse {
@@ -169,7 +161,7 @@ export interface IgnorePatternMutationResponse {
 }
 
 export interface IgnorePreviewResponse {
-  files: SearchFileEntry[]
+  files: AttentionFileEntry[]
   error?: string
 }
 
@@ -187,23 +179,19 @@ const api: IpcApi = {
 
   // ---- Settings ----
   get_settings: () => ipcRenderer.invoke('settings:get'),
-  save_settings: (selectedFormats, splitEnabled, splitCount) =>
-    ipcRenderer.invoke('settings:save', { selectedFormats, splitEnabled, splitCount }),
+  save_settings: (selectedFormats, splitEnabled, splitCount, instructionsEnabled?) =>
+    ipcRenderer.invoke('settings:save', { selectedFormats, splitEnabled, splitCount, instructionsEnabled }),
 
   // ---- WSL Configuration ----
   get_wsl_config: () => ipcRenderer.invoke('wsl:getConfig'),
   save_wsl_config: (enabled, basePath) =>
     ipcRenderer.invoke('wsl:saveConfig', { enabled, basePath }),
 
-  // ---- Search Context ----
-  add_search_keyword: (keyword) => ipcRenderer.invoke('search:addKeyword', keyword),
-  remove_search_keyword: (keyword) => ipcRenderer.invoke('search:removeKeyword', keyword),
-  get_search_match_count: (keywords) => ipcRenderer.invoke('search:getMatchCount', keywords),
-  search_preview: (keyword, maxResults = 50) => ipcRenderer.invoke('search:preview', { keyword, maxResults }),
-  cancel_search_preview: () => ipcRenderer.invoke('search:cancelPreview'),
-  get_search_stats: (keywords, options) =>
-    ipcRenderer.invoke('search:getStats', { keywords, quickOnly: Boolean(options?.quickOnly) }),
-  get_search_keywords: () => ipcRenderer.invoke('search:getKeywords'),
+  // ---- Attention Context ----
+  preview_attention: (patterns) => ipcRenderer.invoke('attention:preview', patterns),
+  get_prompt_instruction: () => ipcRenderer.invoke('prompt:getInstruction'),
+  reset_prompt_instruction: () => ipcRenderer.invoke('prompt:resetInstruction'),
+  save_attention_patterns: (patterns) => ipcRenderer.invoke('attention:savePatterns', patterns),
 
   // ---- Dynamic Global Ignore ----
   add_ignore_pattern: (pattern) => ipcRenderer.invoke('ignore:addCustomPattern', pattern),
@@ -213,14 +201,15 @@ const api: IpcApi = {
     ipcRenderer.invoke('ignore:previewPattern', { pattern, maxResults }),
 
   // ---- Generation ----
-  start_generation: (selectedFormats, splitEnabled, splitCount, searchKeywords) =>
-    ipcRenderer.invoke('generate:start', { selectedFormats, splitEnabled, splitCount, searchKeywords }),
+  start_generation: (selectedFormats, splitEnabled, splitCount, attentionPatterns) =>
+    ipcRenderer.invoke('generate:start', { selectedFormats, splitEnabled, splitCount, attentionPatterns }),
   cancel_generation: () => ipcRenderer.invoke('generate:cancel'),
 
   // ---- File operations ----
   open_file_explorer: (path) => ipcRenderer.invoke('file:openExplorer', path),
   open_output_folder: () => ipcRenderer.invoke('file:openOutputFolder'),
   open_settings_file: () => ipcRenderer.invoke('file:openSettingsFile'),
+  open_instructions_file: () => ipcRenderer.invoke('file:openInstructionsFile'),
   auto_copy_files: (fileNames) => ipcRenderer.invoke('file:autoCopy', fileNames),
   clear_output: () => ipcRenderer.invoke('file:clearOutput'),
 

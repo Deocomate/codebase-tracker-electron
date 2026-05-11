@@ -1,7 +1,7 @@
 import { FileScanner } from './scanner'
 import { FileCombiner, CombinerStats } from './combiner'
 import { IgnoreRules } from './ignoreRules'
-import { SearchEngine } from './searchEngine'
+import ignore from 'ignore'
 
 type ProgressCallback = (message: string, progress: number) => void
 
@@ -26,7 +26,7 @@ export class ProjectProcessor {
     cancelRef: { cancelled: boolean },
     exportFormats?: string[],
     splitCount?: number | null,
-    searchKeywords?: string[]
+    attentionPatterns?: string[]
   ): Promise<ProcessorResult> {
     try {
       scanCallback('Scanning project files...', 0)
@@ -38,26 +38,32 @@ export class ProjectProcessor {
         return { success: false, message: 'Process was cancelled by user.', stats: {} }
       }
 
-      const effectiveSearchKeywords = (searchKeywords ?? [])
-        .filter((keyword): keyword is string => typeof keyword === 'string')
-        .map((keyword) => keyword.trim())
+      const effectivePatterns = (attentionPatterns ?? [])
+        .filter((p): p is string => typeof p === 'string')
+        .map((p) => p.trim())
         .filter(Boolean)
 
-      if (effectiveSearchKeywords.length > 0) {
-        scanCallback('Searching for keyword matches...', -1)
+      if (effectivePatterns.length > 0) {
+        scanCallback('Applying attention patterns...', -1)
 
-        const searchEngine = new SearchEngine(this.projectPath, this.ignoreRules)
-        const searchFiles = await searchEngine.search(effectiveSearchKeywords)
+        const attnIg = ignore().add(effectivePatterns)
+        const secondaryFiles: FileEntry[] = []
+        const attentionFiles: FileEntry[] = []
 
-        if (cancelRef.cancelled) {
-          return { success: false, message: 'Process was cancelled by user.', stats: {} }
+        for (const file of categorizedFiles.codebase) {
+          const normPath = file.relPath.replace(/\\/g, '/')
+          if (attnIg.ignores(normPath)) {
+            attentionFiles.push({ ...file, isAttention: true })
+          } else {
+            secondaryFiles.push(file)
+          }
         }
 
-        const searchAbsPaths = new Set(searchFiles.map((file) => file.absPath))
-        const globalOnly = categorizedFiles.codebase.filter((file) => !searchAbsPaths.has(file.absPath))
-        categorizedFiles.codebase = [...globalOnly, ...searchFiles]
-
-        scanCallback(`Search complete! ${searchFiles.length} keyword matches found.`, 0.45)
+        categorizedFiles.codebase = [...secondaryFiles, ...attentionFiles]
+        scanCallback(
+          `Attention split: ${secondaryFiles.length} secondary + ${attentionFiles.length} attention files.`,
+          0.45
+        )
       }
 
       const totalMatches = Object.values(categorizedFiles).reduce((sum, v) => sum + v.length, 0)
@@ -89,4 +95,10 @@ export class ProjectProcessor {
       return { success: false, message: `An unexpected error occurred: ${err.message}`, stats: {} }
     }
   }
+}
+
+interface FileEntry {
+  absPath: string
+  relPath: string
+  isAttention?: boolean
 }

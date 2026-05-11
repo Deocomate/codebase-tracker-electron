@@ -33,14 +33,17 @@ main/
   core/
     scanner.ts      Recursive walk + filtering + priority sort
     treeBuilder.ts  ASCII tree generation with truncation
-    ignoreRules.ts  .gitignore + built-in rules + selection specificity
-    processor.ts    High-level scan -> combine coordinator
-    combiner.ts     Formatter dispatch, streaming writes, split trigger
+    ignoreRules.ts  .gitignore + built-in rules + selection specificity + attention patterns + prompt file mgmt + instructions file mgmt
+    processor.ts    High-level scan -> combine coordinator with attention file splitting
+    combiner.ts     Formatter dispatch, streaming writes, split trigger, attention flag passthrough
     fileSplitter.ts Header-preserving file chunking
     fileUtils.ts    isTextFile, readTextFile, path normalization
     clipboard.ts    Cross-platform file clipboard copy
     path-resolver.ts WSL path mapping: Linux paths → Windows UNC paths
     formatters/
+  worker/
+    index.ts        Worker manager: spawns child process, NDJSON communication
+    protocol.ts     Shared types: WorkerAction, WorkerRequest, WorkerResponse, TreeNode
       baseFormatter.ts    Abstract formatter + comment stripping
       txtFormatter.ts     Plain text streaming
       jsonFormatter.ts    Streaming JSON output (writeOutput override)
@@ -54,11 +57,12 @@ main/
 renderer/
   index.html        CSP-hardened entry HTML
   src/
-    main.tsx        React 19 root mount
-    App.tsx         Root component: split pane, state, IPC listeners
-    TreeView.tsx    Recursive @dnd-kit sortable tree
-    types/index.ts  Shared TypeScript interfaces
-    index.css       Tailwind v4 custom theme + split/gutter/scrollbar styles
+    main.tsx             React 19 root mount
+    App.tsx              Root component: split pane, state, IPC listeners
+    AttentionSidebar.tsx  Glob pattern input, live preview, AI instruction copy, ignore mgmt
+    TreeView.tsx         Recursive @dnd-kit sortable tree
+    types/index.ts       Shared TypeScript interfaces
+    index.css            Tailwind v4 custom theme + split/gutter/scrollbar styles
 ```
 
 ## IPC Channel Map
@@ -74,11 +78,16 @@ renderer/
 | `settings:save`              | R -> M    | Save UI preferences.                         |
 | `wsl:getConfig`              | R -> M    | Get WSL mode configuration.                  |
 | `wsl:saveConfig`             | R -> M    | Save WSL mode configuration.                 |
-| `generate:start`             | R -> M    | Begin async scan+combine.                    |
+| `attention:preview`          | R -> M    | Resolve glob patterns to matched file list.  |
+| `attention:savePatterns`     | R -> M    | Save attention patterns to settings.         |
+| `prompt:getInstruction`      | R -> M    | Read prompt file content.                    |
+| `prompt:resetInstruction`    | R -> M    | Reset prompt file to default.                |
+| `generate:start`             | R -> M    | Begin async scan+combine (with attention patterns). |
 | `generate:cancel`            | R -> M    | Set cancellation flag.                       |
 | `file:openExplorer`          | R -> M    | Open file in native file manager.            |
 | `file:openOutputFolder`    | R -> M    | Open `_codebase` folder.                     |
 | `file:openSettingsFile`      | R -> M    | Open `settings.json` in default editor.     |
+| `file:openInstructionsFile`  | R -> M    | Open `instructions.md` in default editor.    |
 | `file:autoCopy`              | R -> M    | Copy generated files to clipboard.         |
 | `file:clearOutput`           | R -> M    | Delete `_codebase` directory.                |
 | `util:testConnection`        | R -> M    | Health-check ping.                           |
@@ -122,7 +131,7 @@ App.tsx -> setTreeData(tree)
 User clicks "Scan & Generate"
     |
     v
-App.tsx -> window.api.start_generation(formats, splitEnabled, splitCount)
+App.tsx -> window.api.start_generation(selectedFormats, splitEnabled, splitCount, attentionPatterns)
     |
     v
 ipcHandlers.ts: generate:start
@@ -137,11 +146,17 @@ ipcHandlers.ts: generate:start
     |       |       +-> filter by ignore + selection + isTextFile
     |       |       +-> sort by priority roots
     |       |
+    |       +-> processor splits scanned files by attention glob matching
+    |       |       +-> attentionFiles: matched -> isAttention=true
+    |       |       +-> codebaseFiles: unmatched -> isAttention=false
+    |       |
     |       +-> FileCombiner.combine(...)
+    |               +-> read instructionContent from ignoreRules (if instructions enabled)
     |               +-> build ASCII tree -> codebase_structure.txt
     |               +-> for each format:
     |                       +-> new FormatterClass()
-    |                       +-> createWriteStream -> writeOutput
+    |                       +-> writeOutput with instructionContent + isAttention flag per file
+    |                       +-> formatters inject instructions before file content, attention markers before attention files
     |                       +-> if txt + splitEnabled -> splitOutputFile
     |               +-> return stats
     |       |
@@ -203,6 +218,7 @@ const [stats, setStats] = useState<Stats | null>(null)
 const [formats, setFormats] = useState<OutputFormats>({ txt: true, json: false, md: false, xml: false })
 const [splitEnabled, setSplitEnabled] = useState(true)
 const [splitCount, setSplitCount] = useState(5)
+const [attentionPatterns, setAttentionPatterns] = useState<string[]>([])
 ```
 
 ## Build Pipeline

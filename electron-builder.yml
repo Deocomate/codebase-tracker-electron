@@ -20,7 +20,7 @@ win:
   target: nsis              # NSIS installer for faster startup and professional installation
 
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${name}-setup.${ext}
   shortcutName: Codebase Tracker
   uninstallDisplayName: Codebase Tracker
   createDesktopShortcut: always

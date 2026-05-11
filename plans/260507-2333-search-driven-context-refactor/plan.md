@@ -1,15 +1,16 @@
 ---
 title: "Search-driven Context Refactor"
-description: "Refactor from manual-only file selection to Global Context + Search-driven Context architecture to reduce token bloat and recency bias"
-status: pending
+description: "SUPERSEDED by 260511-0023-attention-context-refactor — keyword search replaced with glob pattern attention matching"
+status: cancelled
 priority: P1
 branch: "main"
-tags: ["refactor", "search", "context", "LLM optimization"]
+tags: ["refactor", "search", "context", "LLM optimization", "superseded"]
 blockedBy: []
 blocks: []
 created: "2026-05-07T16:39:18.557Z"
 createdBy: "ck:plan"
 source: skill
+supersededBy: "260511-0023-attention-context-refactor"
 ---
 
 # Search-driven Context Refactor

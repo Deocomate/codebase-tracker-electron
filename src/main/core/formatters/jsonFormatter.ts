@@ -18,30 +18,33 @@ export class JsonFormatter extends BaseFormatter {
     fileHandle: { write: (s: string) => boolean },
     configName: string,
     timestamp: string,
-    files: { absPath: string; relPath: string }[]
+    files: { absPath: string; relPath: string; isAttention?: boolean }[],
+    instructionContent?: string | null
   ): Promise<number> {
     let chars = 0
 
-    // 1. Viết khối Metadata mở đầu
-    const metadata = {
+    const metadata: Record<string, unknown> = {
       config: configName,
       files_count: files.length,
       generated_at: timestamp
     }
 
-    // Tạo cấu trúc mở của JSON
+    if (instructionContent) {
+      metadata.system_instructions = instructionContent
+    }
+
     const header = `{\n  "metadata": ${JSON.stringify(metadata, null, 2).replace(/\n/g, '\n  ')},\n  "files": [\n`
     fileHandle.write(header)
     chars += header.length
 
-    // 2. Lặp qua từng file, đọc tới đâu convert JSON tới đó
     for (let i = 0; i < files.length; i++) {
-      const { absPath, relPath } = files[i]
+      const { absPath, relPath, isAttention } = files[i]
       const content = await this._readFileContent(absPath, relPath)
 
       const fileObj = {
         path: relPath.replace(/\\/g, '/'),
         language: this._getLanguageFromExtension(relPath),
+        is_attention: Boolean(isAttention),
         content: content
       }
 

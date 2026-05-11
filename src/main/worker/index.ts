@@ -11,7 +11,6 @@
 
 import { IgnoreRules } from '../core/ignoreRules'
 import { ProjectProcessor } from '../core/processor'
-import { SearchEngine } from '../core/searchEngine'
 import type { WorkerRequest, WorkerResponse, TreeNode } from './protocol'
 import fs from 'fs/promises'
 import path from 'path'
@@ -19,10 +18,7 @@ import path from 'path'
 // ==================== Worker State ====================
 
 let rules: IgnoreRules | null = null
-let searchEngine: SearchEngine | null = null
 let projectPath: string | null = null
-let searchPreviewRequestId = 0
-let searchStatsRequestId = 0
 let cancelRef = { cancelled: false }
 
 // ==================== NDJSON I/O ====================
@@ -139,27 +135,6 @@ async function rebuildProjectTree(): Promise<TreeNode | null> {
   return buildTreeNode(rules, projectPath, '.')
 }
 
-function resetSearchEngine(): SearchEngine | null {
-  if (!rules || !projectPath) {
-    searchEngine = null
-    searchPreviewRequestId += 1
-    searchStatsRequestId += 1
-    return null
-  }
-
-  searchEngine = new SearchEngine(projectPath, rules)
-  searchPreviewRequestId += 1
-  searchStatsRequestId += 1
-  searchEngine.warmIndex()
-  return searchEngine
-}
-
-function getSearchEngine(): SearchEngine | null {
-  if (!rules) return null
-  if (!searchEngine) return resetSearchEngine()
-  return searchEngine
-}
-
 // ==================== Action Handlers ====================
 
 async function handleInit(id: string, payload: Record<string, unknown>): Promise<void> {
@@ -178,16 +153,13 @@ async function handleInit(id: string, payload: Record<string, unknown>): Promise
       await rules.updateWslConfig(wslConfig.enabled, wslConfig.basePath, true)
     }
 
-    resetSearchEngine()
     const rootNode = await buildTreeNode(rules, fsPath, '.')
 
-    const cached_search_stats: Record<string, number> = {}
-    const cache = rules.getSearchCache()
-    for (const [k, v] of Object.entries(cache)) {
-      cached_search_stats[k] = v.length
-    }
-
-    sendSuccess(id, { tree: rootNode, cached_search_stats, project_path: fsPath })
+    sendSuccess(id, {
+      tree: rootNode,
+      attention_patterns: rules.getAttentionPatterns(),
+      project_path: fsPath
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     if (message.includes('ENOENT') || message.includes('no such file')) {
@@ -239,116 +211,78 @@ async function handleUpdatePriority(id: string, payload: Record<string, unknown>
   sendSuccess(id, {})
 }
 
-async function handleSearchPreview(id: string, payload: Record<string, unknown>): Promise<void> {
-  if (!rules) return sendSuccess(id, { files: [] })
+async function handleAttentionPreview(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules || !projectPath) return sendSuccess(id, { files: [] })
 
-  const keyword = typeof payload.keyword === 'string' ? payload.keyword : ''
-  const maxResults =
-    typeof payload.maxResults === 'number' ? Math.min(Math.max(payload.maxResults, 1), 100) : 50
-  if (!keyword.trim()) return sendSuccess(id, { files: [] })
-
-  const engine = getSearchEngine()
-  if (!engine) return sendSuccess(id, { files: [] })
-
-  const requestId = ++searchPreviewRequestId
-  const files = await engine.searchPreview(keyword, maxResults, {
-    shouldCancel: () => searchPreviewRequestId !== requestId
-  })
-  sendSuccess(id, { files })
-}
-
-async function handleCancelSearchPreview(id: string): Promise<void> {
-  searchPreviewRequestId += 1
-  sendSuccess(id, { status: 'cancelled' })
-}
-
-async function handleSearchStats(id: string, payload: Record<string, unknown>): Promise<void> {
-  if (!rules) return sendSuccess(id, { stats: {} })
-
-  const keywords = payload.keywords as string[] | undefined
-  const quickOnly = Boolean(payload.quickOnly)
-  const safeKeywords = Array.isArray(keywords)
-    ? keywords.map((k) => k.trim()).filter(Boolean)
+  const patterns = Array.isArray(payload.patterns)
+    ? (payload.patterns as string[]).filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
     : []
-  if (safeKeywords.length === 0) return sendSuccess(id, { stats: {} })
 
-  const engine = getSearchEngine()
-  if (!engine) return sendSuccess(id, { stats: {} })
+  if (patterns.length === 0) return sendSuccess(id, { files: [] })
 
-  // Read cache first for quick return
-  const cache = rules.getSearchCache()
-  const stats: Record<string, number> = {}
-  const uncachedKeywords: string[] = []
+  const attnIg = (await import('ignore')).default().add(patterns)
+  const results: Array<{ absPath: string; relPath: string; tokens?: number }> = []
 
-  for (const keyword of safeKeywords) {
-    if (cache[keyword]) {
-      stats[keyword] = cache[keyword].length
-    } else {
-      uncachedKeywords.push(keyword)
+  const walk = async (relDir: string): Promise<void> => {
+    const absDir = relDir ? path.join(projectPath!, relDir) : projectPath!
+    let entries
+    try {
+      entries = await fs.readdir(absDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name === '_codebase') continue
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+      if (rules!.isGloballyIgnoredByRelPath(relPath, entry.isDirectory())) continue
+      if (entry.isDirectory()) {
+        await walk(relPath)
+        continue
+      }
+      const checkPath = relPath.replace(/\\/g, '/')
+      if (attnIg.ignores(checkPath)) {
+        try {
+          const stat = await fs.stat(path.join(projectPath!, relPath))
+          results.push({ absPath: path.join(projectPath!, relPath), relPath, tokens: Math.ceil(stat.size / 4) })
+        } catch {
+          results.push({ absPath: path.join(projectPath!, relPath), relPath })
+        }
+      }
     }
   }
 
-  if (uncachedKeywords.length > 0) {
-    const requestId = ++searchStatsRequestId
-    const newlyFetchedStats = await engine.getSearchStats(uncachedKeywords, {
-      quickOnly,
-      shouldCancel: () => searchStatsRequestId !== requestId
-    })
-    for (const [k, count] of Object.entries(newlyFetchedStats)) {
-      stats[k] = count
-    }
-  }
-
-  sendSuccess(id, { stats })
+  await walk('')
+  sendSuccess(id, { files: results })
 }
 
-async function handleSearchAddKeyword(id: string, payload: Record<string, unknown>): Promise<void> {
+async function handleReadPromptFile(id: string): Promise<void> {
   if (!rules) return sendError(id, 'Project chưa được load')
-
-  const keyword = payload.keyword as string
-  const current = rules.getSearchKeywords()
-  const trimmed = typeof keyword === 'string' ? keyword.trim() : ''
-  if (!trimmed) return sendSuccess(id, { keywords: current })
-
-  await rules.updateSearchKeywords([...current, trimmed], true)
-  sendSuccess(id, { keywords: rules.getSearchKeywords() })
+  const content = await rules.readPromptFile()
+  sendSuccess(id, { content })
 }
 
-async function handleSearchRemoveKeyword(id: string, payload: Record<string, unknown>): Promise<void> {
+async function handleResetPromptFile(id: string): Promise<void> {
   if (!rules) return sendError(id, 'Project chưa được load')
-
-  const keyword = payload.keyword as string
-  const trimmed = typeof keyword === 'string' ? keyword.trim() : ''
-  const current = rules.getSearchKeywords()
-  const updated = current.filter((item) => item !== trimmed)
-  await rules.updateSearchKeywords(updated, true)
-  sendSuccess(id, { keywords: rules.getSearchKeywords() })
+  await rules.resetPromptFile()
+  const content = await rules.readPromptFile()
+  sendSuccess(id, { content })
 }
 
-async function handleSearchGetKeywords(id: string): Promise<void> {
-  if (!rules) return sendSuccess(id, { keywords: [] })
-  sendSuccess(id, { keywords: rules.getSearchKeywords() })
-}
-
-async function handleSearchGetMatchCount(id: string, payload: Record<string, unknown>): Promise<void> {
-  if (!rules) return sendSuccess(id, { count: 0 })
-
-  const keywords = payload.keywords as string[]
-  const safeKeywords = Array.isArray(keywords) ? keywords : []
-  if (safeKeywords.length === 0) return sendSuccess(id, { count: 0 })
-
-  const engine = getSearchEngine()
-  if (!engine) return sendSuccess(id, { count: 0 })
-
-  const results = await engine.search(safeKeywords, { quickOnly: true })
-  sendSuccess(id, { count: results.length })
+async function handleSaveAttentionPatterns(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules) return sendError(id, 'Project chưa được load')
+  const patterns = Array.isArray(payload.patterns)
+    ? (payload.patterns as string[]).filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    : []
+  await rules.updateAttentionPatterns(patterns, true)
+  sendSuccess(id, { patterns: rules.getAttentionPatterns() })
 }
 
 async function handleGetSettings(id: string): Promise<void> {
   if (!rules) return sendError(id, 'Project chưa được load')
   sendSuccess(id, {
     ui_preferences: rules.getUiPreferences(),
-    priority_roots: rules.getPriorityRoots()
+    priority_roots: rules.getPriorityRoots(),
+    instructions_config: rules.getInstructionsConfig()
   })
 }
 
@@ -357,7 +291,11 @@ async function handleSaveSettings(id: string, payload: Record<string, unknown>):
   const selectedFormats = payload.selectedFormats as string[]
   const splitEnabled = payload.splitEnabled as boolean
   const splitCount = payload.splitCount as number
+  const instructionsEnabled = payload.instructionsEnabled as boolean | undefined
   await rules.updateUiPreferences(selectedFormats, splitEnabled, splitCount, true)
+  if (instructionsEnabled !== undefined) {
+    await rules.updateInstructionsConfig(instructionsEnabled, true)
+  }
   sendSuccess(id, {})
 }
 
@@ -394,7 +332,6 @@ async function handleAddIgnorePattern(id: string, payload: Record<string, unknow
   try {
     const pattern = payload.pattern as string
     const patterns = await rules.addCustomIgnorePattern(pattern, true)
-    resetSearchEngine()
     const tree = await rebuildProjectTree()
     sendSuccess(id, { patterns, tree })
   } catch (err: unknown) {
@@ -408,7 +345,6 @@ async function handleRemoveIgnorePattern(id: string, payload: Record<string, unk
   try {
     const pattern = payload.pattern as string
     const patterns = await rules.removeCustomIgnorePattern(pattern, true)
-    resetSearchEngine()
     const tree = await rebuildProjectTree()
     sendSuccess(id, { patterns, tree })
   } catch (err: unknown) {
@@ -441,7 +377,7 @@ async function handleGenerate(id: string, payload: Record<string, unknown>): Pro
   const selectedFormats = payload.selectedFormats as string[]
   const splitEnabled = payload.splitEnabled as boolean
   const splitCount = payload.splitCount as number
-  const searchKeywords = payload.searchKeywords as string[] | undefined
+  const attentionPatterns = payload.attentionPatterns as string[] | undefined
   const actualSplitCount = splitEnabled ? splitCount : 0
 
   let processor: ProjectProcessor
@@ -463,7 +399,7 @@ async function handleGenerate(id: string, payload: Record<string, unknown>): Pro
       cancelRef,
       selectedFormats,
       actualSplitCount,
-      searchKeywords
+      attentionPatterns
     )
 
     sendSuccess(id, { success, message, stats })
@@ -508,20 +444,14 @@ async function dispatch(request: WorkerRequest): Promise<void> {
         return handleUpdateSelection(id, p)
       case 'UPDATE_PRIORITY':
         return handleUpdatePriority(id, p)
-      case 'SEARCH_PREVIEW':
-        return handleSearchPreview(id, p)
-      case 'CANCEL_SEARCH_PREVIEW':
-        return handleCancelSearchPreview(id)
-      case 'SEARCH_STATS':
-        return handleSearchStats(id, p)
-      case 'SEARCH_ADD_KEYWORD':
-        return handleSearchAddKeyword(id, p)
-      case 'SEARCH_REMOVE_KEYWORD':
-        return handleSearchRemoveKeyword(id, p)
-      case 'SEARCH_GET_KEYWORDS':
-        return handleSearchGetKeywords(id)
-      case 'SEARCH_GET_MATCH_COUNT':
-        return handleSearchGetMatchCount(id, p)
+      case 'ATTENTION_PREVIEW':
+        return handleAttentionPreview(id, p)
+      case 'READ_PROMPT_FILE':
+        return handleReadPromptFile(id)
+      case 'RESET_PROMPT_FILE':
+        return handleResetPromptFile(id)
+      case 'SAVE_ATTENTION_PATTERNS':
+        return handleSaveAttentionPatterns(id, p)
       case 'GET_SETTINGS':
         return handleGetSettings(id)
       case 'SAVE_SETTINGS':

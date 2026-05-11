@@ -4,6 +4,39 @@ import type { Dirent } from 'fs'
 import ignore, { Ignore } from 'ignore'
 
 const SETTINGS_FILENAME = 'settings.json'
+const PROMPT_FILENAME = 'prompt_get_list_files_and_folders_related.md'
+const INSTRUCTIONS_FILENAME = 'instructions.md'
+
+const DEFAULT_INSTRUCTIONS_CONTENT = `# Project Instructions for LLMs
+
+## Context
+[Describe your project briefly — what it does, tech stack, key domains]
+
+## Conventions
+- Code style: [e.g. functional components, TypeScript strict mode]
+- Naming: [e.g. kebab-case files, PascalCase components]
+- Architecture: [e.g. Electron main/renderer, Worker process pattern]
+
+## Rules for AI
+- When suggesting code, follow the conventions above
+- Prefer existing patterns over new abstractions
+- [Add your own rules here]
+`
+
+const DEFAULT_PROMPT_CONTENT = `Dựa vào codebase và codebase structure tôi đã cung cấp ở trên cho bạn
+
+Tôi cần bạn phân tích dự án này để giúp tôi giải quyết vấn đề sau:[ĐIỀN VẤN ĐỀ / TÍNH NĂNG BẠN MUỐN LÀM VÀO ĐÂY]
+
+NHIỆM VỤ CỦA BẠN:
+1. Phân tích cấu trúc thư mục và xác định TẤT CẢ các file/folder trọng tâm, cần thiết để bạn hiểu và code được yêu cầu trên.
+2. Trả về kết quả CHỈ DƯỚI DẠNG pattern giống .gitignore (mỗi file/folder một dòng). Không giải thích, không định dạng Markdown, không nói thêm bất cứ điều gì.
+
+Ví dụ định dạng đầu ra:
+src/main/core/searchEngine.ts
+src/renderer/src/SearchSidebar.tsx
+src/types/**/*.ts
+
+Không cần trả lời thêm bất cứ gì, chỉ cần liệt kê các file liên quan đến cấu trúc dự án và vấn đề tôi đang cần giải quyết.`
 
 interface Settings {
   schema_version: number
@@ -12,8 +45,7 @@ interface Settings {
   priority_roots: string[]
   global_ignore_patterns: string[]
   custom_ignore_patterns: string[]
-  search_keywords: string[]
-  search_cache: Record<string, string[]>
+  attention_patterns: string[]
   split_config: {
     enabled: boolean
     split_count: number
@@ -28,11 +60,14 @@ interface Settings {
     enabled: boolean
     basePath: string
   }
+  instructions: {
+    enabled: boolean
+  }
   description: string
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  schema_version: 8,
+  schema_version: 10,
   included_paths: [],
   excluded_paths: [],
   priority_roots: [],
@@ -43,11 +78,11 @@ const DEFAULT_SETTINGS: Settings = {
     '.idea/', '.vscode/', '*.log', '*.bak', '*.swp', '*.tmp', '.DS_Store'
   ],
   custom_ignore_patterns: [],
-  search_keywords: [],
-  search_cache: {},
+  attention_patterns: [],
   split_config: { enabled: true, split_count: 5, token_threshold: 40000 },
   ui: { selected_formats: ['txt'], split_enabled: true, split_count: 5 },
   wsl: { enabled: false, basePath: '\\\\wsl.localhost\\Ubuntu-24.04' },
+  instructions: { enabled: false },
   description: 'Cấu hình gom mã nguồn dự án.'
 }
 
@@ -84,6 +119,8 @@ export class IgnoreRules {
     await this._loadGitignore()
     await this._loadSettings()
     this._compileRules()
+    await this.ensurePromptFileExists()
+    await this.ensureInstructionsFileExists()
   }
 
   // ==================== Private: I/O ====================
@@ -151,14 +188,21 @@ export class IgnoreRules {
       this.settings.schema_version = 8
       this.settings.wsl = { enabled: false, basePath: '\\\\wsl.localhost\\Ubuntu-24.04' }
     }
+    if ((this.settings.schema_version ?? 8) < 9) {
+      this.settings.schema_version = 9
+      delete mutableSettings.search_keywords
+      delete mutableSettings.search_cache
+      this.settings.attention_patterns = []
+    }
+    if ((this.settings.schema_version ?? 9) < 10) {
+      this.settings.schema_version = 10
+      this.settings.instructions = { enabled: false }
+    }
     // Fill missing keys
     for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
       if (!(key in this.settings)) {
         mutableSettings[key] = this._deepClone(val)
       }
-    }
-    if (!Array.isArray(this.settings.search_keywords)) {
-      this.settings.search_keywords = []
     }
     this.settings.custom_ignore_patterns = this._normalizeIgnorePatterns(this.settings.custom_ignore_patterns)
     // Sync ui config
@@ -381,32 +425,16 @@ export class IgnoreRules {
     this._compileRules()
   }
 
-  getSearchKeywords(): string[] {
-    if (!Array.isArray(this.settings.search_keywords)) return []
-    return [...this.settings.search_keywords]
+  getAttentionPatterns(): string[] {
+    if (!Array.isArray(this.settings.attention_patterns)) return []
+    return [...this.settings.attention_patterns]
   }
 
-  getSearchCache(): Record<string, string[]> {
-    if (!this.settings.search_cache || typeof this.settings.search_cache !== 'object') return {}
-    return { ...this.settings.search_cache }
-  }
-
-  async updateSearchCache(cache: Record<string, string[]>, persist = true): Promise<void> {
-    this.settings.search_cache = { ...cache }
-    if (persist) await this._saveSettings()
-  }
-
-  async updateSearchKeywords(keywords: string[], persist = true): Promise<void> {
-    const seen = new Set<string>()
-    this.settings.search_keywords = keywords
-      .filter((keyword): keyword is string => typeof keyword === 'string')
-      .map((keyword) => keyword.trim())
-      .filter((keyword) => {
-        if (!keyword || seen.has(keyword)) return false
-        seen.add(keyword)
-        return true
-      })
-
+  async updateAttentionPatterns(patterns: string[], persist = true): Promise<void> {
+    this.settings.attention_patterns = patterns
+      .filter((p): p is string => typeof p === 'string')
+      .map((p) => p.trim())
+      .filter(Boolean)
     if (persist) await this._saveSettings()
   }
 
@@ -533,6 +561,68 @@ export class IgnoreRules {
     this.settings = this._deepClone(DEFAULT_SETTINGS)
     await this._saveSettings()
     this._compileRules()
+  }
+
+  // ==================== Prompt File Manager ====================
+
+  private getPromptFilePath(): string {
+    return path.join(this.codebaseDir, PROMPT_FILENAME)
+  }
+
+  async ensurePromptFileExists(): Promise<void> {
+    const fp = this.getPromptFilePath()
+    try {
+      await fs.access(fp)
+    } catch {
+      await fs.writeFile(fp, DEFAULT_PROMPT_CONTENT, 'utf-8')
+    }
+  }
+
+  async resetPromptFile(): Promise<void> {
+    await fs.writeFile(this.getPromptFilePath(), DEFAULT_PROMPT_CONTENT, 'utf-8')
+  }
+
+  async readPromptFile(): Promise<string> {
+    try {
+      return await fs.readFile(this.getPromptFilePath(), 'utf-8')
+    } catch {
+      return DEFAULT_PROMPT_CONTENT
+    }
+  }
+
+  // ==================== Instructions File Manager ====================
+
+  private getInstructionsFilePath(): string {
+    return path.join(this.codebaseDir, INSTRUCTIONS_FILENAME)
+  }
+
+  async ensureInstructionsFileExists(): Promise<void> {
+    const fp = this.getInstructionsFilePath()
+    try {
+      await fs.access(fp)
+    } catch {
+      await fs.writeFile(fp, DEFAULT_INSTRUCTIONS_CONTENT, 'utf-8')
+    }
+  }
+
+  getInstructionsConfig(): { enabled: boolean } {
+    return {
+      enabled: Boolean(this.settings.instructions?.enabled ?? false)
+    }
+  }
+
+  async updateInstructionsConfig(enabled: boolean, persist = true): Promise<void> {
+    this.settings.instructions = { enabled: Boolean(enabled) }
+    if (persist) await this._saveSettings()
+  }
+
+  async readInstructionsFile(): Promise<string | null> {
+    if (!this.settings.instructions?.enabled) return null
+    try {
+      return await fs.readFile(this.getInstructionsFilePath(), 'utf-8')
+    } catch {
+      return null
+    }
   }
 
   // ==================== Utility ====================

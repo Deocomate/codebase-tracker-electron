@@ -12,7 +12,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 import TreeView from './TreeView'
-import SearchSidebar from './SearchSidebar'
+import AttentionSidebar from './AttentionSidebar'
 import type { TreeData, Stats, OutputFormats, LoadProjectResponse } from './types'
 
 // Lấy WSL config mặc định từ localStorage để giữ cấu hình trên toàn App
@@ -122,28 +122,12 @@ function App(): ReactElement {
   })
   const [splitEnabled, setSplitEnabled] = useState(true)
   const [splitCount, setSplitCount] = useState(5)
-  const [searchKeywords, setSearchKeywords] = useState<string[]>([])
+  const [instructionsEnabled, setInstructionsEnabled] = useState(false)
+  const [attentionPatterns, setAttentionPatterns] = useState<string[]>([])
   const [ignorePatterns, setIgnorePatterns] = useState<string[]>([])
-  const [searchKeywordStats, setSearchKeywordStats] = useState<Record<string, number>>({})
   const [stats, setStats] = useState<Stats | null>(null)
   const [wslConfig, setWslConfig] = useState(defaultWsl)
   const logEndRef = useRef<HTMLDivElement>(null)
-  const searchStatsRequestRef = useRef(0)
-
-  const updateSearchStats = useCallback(async (keywords: string[]): Promise<void> => {
-    const normalizedKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean)
-    if (normalizedKeywords.length === 0) {
-      searchStatsRequestRef.current += 1
-      setSearchKeywordStats({})
-      return
-    }
-
-    const requestId = ++searchStatsRequestRef.current
-    const response = await window.api.get_search_stats(normalizedKeywords)
-    if (searchStatsRequestRef.current !== requestId) return
-
-    setSearchKeywordStats(response.stats ?? {})
-  }, [])
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -191,10 +175,8 @@ function App(): ReactElement {
     setTreeData(null)
     setTreeLoadState('loading')
     setTreeLoadError(null)
-    searchStatsRequestRef.current += 1
-    setSearchKeywords([])
+    setAttentionPatterns([])
     setIgnorePatterns([])
-    setSearchKeywordStats({})
     if (!options?.preserveTab) {
       setActiveTab('selected')
     }
@@ -218,25 +200,24 @@ function App(): ReactElement {
         setFormats(newFormats)
         setSplitEnabled(split_enabled)
         setSplitCount(split_count)
+        if (settingsRes.instructions_config) {
+          setInstructionsEnabled(settingsRes.instructions_config.enabled)
+        }
       }
       // ---------------------------------------------------
       setLogs((prev) => [...prev, `Load thành công dự án: ${tree.name}`])
 
-      const [keywordRes, ignoreRes] = await Promise.all([
-        window.api.get_search_keywords(),
-        window.api.get_ignore_patterns()
-      ])
-      const loadedKeywords = Array.isArray(keywordRes.keywords) ? keywordRes.keywords : []
+      const ignoreRes = await window.api.get_ignore_patterns()
       const loadedIgnorePatterns = Array.isArray(ignoreRes.patterns) ? ignoreRes.patterns : []
-      setSearchKeywords(loadedKeywords)
       setIgnorePatterns(loadedIgnorePatterns)
-      void updateSearchStats(loadedKeywords)
+
+      const loadedPatterns = Array.isArray(res.attention_patterns) ? res.attention_patterns : []
+      setAttentionPatterns(loadedPatterns)
     } else {
       setTreeLoadState('error')
       setTreeLoadError(res.error || 'Không thể load project')
-      setSearchKeywords([])
+      setAttentionPatterns([])
       setIgnorePatterns([])
-      setSearchKeywordStats({})
       setLogs((prev) => [...prev, `Lỗi: ${res.error || 'Không thể load project'}`])
     }
   }
@@ -261,8 +242,8 @@ function App(): ReactElement {
     setProgress(0)
     setStats(null)
     const selectedFormats = Object.keys(formats).filter((k) => formats[k as keyof OutputFormats])
-    await window.api.start_generation(selectedFormats, splitEnabled, splitCount, searchKeywords)
-  }, [projectPath, formats, splitEnabled, splitCount, searchKeywords])
+    await window.api.start_generation(selectedFormats, splitEnabled, splitCount, attentionPatterns)
+  }, [projectPath, formats, splitEnabled, splitCount, attentionPatterns])
 
   const handleToggleNode = useCallback(async (path: string, isChecked: boolean): Promise<void> => {
     const res = await window.api.toggle_tree_node(path, isChecked)
@@ -271,35 +252,10 @@ function App(): ReactElement {
     }
   }, [])
 
-  const handleAddKeyword = useCallback(async (keyword: string): Promise<void> => {
+  const handleAttentionPatternsChange = useCallback(async (patterns: string[]): Promise<void> => {
     if (!projectPath || isGenerating) return
-
-    const res = await window.api.add_search_keyword(keyword)
-    if (res.error) {
-      setLogs((prev) => [...prev, `Lỗi: ${res.error}`])
-      return
-    }
-
-    if (Array.isArray(res.keywords)) {
-      setSearchKeywords(res.keywords)
-      void updateSearchStats(res.keywords)
-    }
-  }, [projectPath, isGenerating, updateSearchStats])
-
-  const handleRemoveKeyword = useCallback(async (keyword: string): Promise<void> => {
-    if (!projectPath || isGenerating) return
-
-    const res = await window.api.remove_search_keyword(keyword)
-    if (res.error) {
-      setLogs((prev) => [...prev, `Lỗi: ${res.error}`])
-      return
-    }
-
-    if (Array.isArray(res.keywords)) {
-      setSearchKeywords(res.keywords)
-      void updateSearchStats(res.keywords)
-    }
-  }, [projectPath, isGenerating, updateSearchStats])
+    await window.api.save_attention_patterns(patterns)
+  }, [projectPath, isGenerating])
 
   const handleAddIgnorePattern = useCallback(async (pattern: string): Promise<void> => {
     if (!projectPath || isGenerating) return
@@ -340,6 +296,10 @@ function App(): ReactElement {
     await window.api.open_settings_file()
   }, [])
 
+  const handleEditInstructions = useCallback(async () => {
+    await window.api.open_instructions_file()
+  }, [])
+
   const handleClearOutput = useCallback(async () => {
     setStats(null)
     await window.api.clear_output()
@@ -352,15 +312,17 @@ function App(): ReactElement {
   const handleUpdateSettings = async (
     newFormats: OutputFormats,
     newSplitEnabled: boolean,
-    newSplitCount: number
+    newSplitCount: number,
+    newInstructionsEnabled?: boolean
   ) => {
     setFormats(newFormats)
     setSplitEnabled(newSplitEnabled)
     setSplitCount(newSplitCount)
-    
+    if (newInstructionsEnabled !== undefined) setInstructionsEnabled(newInstructionsEnabled)
+
     if (projectPath) {
       const selectedFormats = Object.keys(newFormats).filter((k) => newFormats[k as keyof OutputFormats])
-      await window.api.save_settings(selectedFormats, newSplitEnabled, newSplitCount)
+      await window.api.save_settings(selectedFormats, newSplitEnabled, newSplitCount, newInstructionsEnabled)
     }
   }
 
@@ -445,12 +407,11 @@ function App(): ReactElement {
       )}
 
       <Split sizes={[25, 50, 25]} minSize={[250, 400, 250]} gutterSize={2} className="split w-full h-full">
-        <SearchSidebar
-          keywords={searchKeywords}
-          keywordStats={searchKeywordStats}
+        <AttentionSidebar
+          projectPath={projectPath}
+          attentionPatterns={attentionPatterns}
           ignorePatterns={ignorePatterns}
-          onAddKeyword={handleAddKeyword}
-          onRemoveKeyword={handleRemoveKeyword}
+          onPatternsChange={handleAttentionPatternsChange}
           onAddIgnorePattern={handleAddIgnorePattern}
           onRemoveIgnorePattern={handleRemoveIgnorePattern}
           disabled={isGenerating || !projectPath || treeLoadState !== 'ready'}
@@ -549,6 +510,32 @@ function App(): ReactElement {
                       className="w-16 bg-white border border-borderDark rounded-sm px-2 py-1 text-[13px] focus:border-accent disabled:bg-gray-50 disabled:opacity-50"
                     />
                   </div>
+                </div>
+              </Card>
+
+              <Card title="LLM Instructions">
+                <div className="flex items-center gap-4 mt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="w-3.5 h-3.5 border-borderDark text-accent focus:ring-accent"
+                      checked={instructionsEnabled}
+                      onChange={(e) =>
+                        handleUpdateSettings(formats, splitEnabled, splitCount, e.target.checked)
+                      }
+                    />
+                    <span className="text-[13px] text-textMain">
+                      Include LLM Instructions (instructions.md)
+                    </span>
+                  </label>
+                  <button
+                    onClick={handleEditInstructions}
+                    disabled={!projectPath}
+                    className="text-[13px] text-accent hover:text-accentHover underline underline-offset-2 disabled:opacity-40 disabled:no-underline transition"
+                    title="Open instructions.md in default editor"
+                  >
+                    Edit
+                  </button>
                 </div>
               </Card>
             </div>

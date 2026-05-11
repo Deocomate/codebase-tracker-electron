@@ -46,18 +46,25 @@
    - Explicit include/exclude paths persisted per project.
    - Specificity-based selection (longest matching path wins).
    - Priority roots affect tree sort order and file scan order.
+   - Attention sidebar with glob pattern input for context-aware file selection.
+   - Live preview of matched files with token counts.
+   - Custom ignore pattern management with inline add/remove.
 
 4. **Export Generation**
    - Formats: `txt`, `json`, `md`, `xml`.
    - Optional comment stripping (per language markers).
+   - Optional LLM instructions injection from `instructions.md` (ui toggle) at the top of all output formats.
    - Auto-splitting for `txt` output into N parts with preserved header.
+   - Attention context: glob-pattern matched files are grouped separately with visual markers (txt, md, json, xml).
    - Streaming output for all formats including JSON (via `writeOutput` override).
    - Cross-platform clipboard copy of generated files.
 
 5. **Settings Persistence**
    - Per-project `settings.json` stored in `_codebase/`.
-   - Schema version 4 with automatic migration.
+   - Schema version 10 with automatic migration.
    - UI preferences (formats, split enabled, split count).
+   - Attention patterns for context-aware file splitting in generated outputs.
+   - LLM instructions (`instructions: { enabled: boolean }`) with auto-created `instructions.md` template.
 
 ## Non-Functional Requirements
 

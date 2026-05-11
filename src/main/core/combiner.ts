@@ -10,7 +10,7 @@ type ProgressCallback = (message: string, progress: number) => void
 interface FileEntry {
   absPath: string
   relPath: string
-  source?: 'global' | 'search'
+  isAttention?: boolean
 }
 
 export interface CombinerStats {
@@ -55,6 +55,11 @@ export class FileCombiner {
 
     const splitEnabled = ignoreRules.settings.split_config.enabled
     const splitCount = splitCountArg ?? ignoreRules.settings.split_config.split_count
+
+    let instructionContent: string | null = null
+    if (ignoreRules.settings.instructions?.enabled) {
+      instructionContent = await ignoreRules.readInstructionsFile()
+    }
 
     callback?.('Cleaning up old outputs...', 0.05)
     try {
@@ -126,7 +131,7 @@ export class FileCombiner {
           })
 
           try {
-            chars = await formatter.writeOutput(writeStream, configName, timestamp, textFiles)
+            chars = await formatter.writeOutput(writeStream, configName, timestamp, textFiles, instructionContent)
           } finally {
             // Luôn luôn gọi end() dù có lỗi xảy ra
             writeStream.end()

@@ -19,7 +19,8 @@ export abstract class BaseFormatter {
     fileHandle: { write: (s: string) => boolean },
     configName: string,
     timestamp: string,
-    files: { absPath: string; relPath: string }[]
+    files: { absPath: string; relPath: string; isAttention?: boolean }[],
+    _instructionContent?: string | null
   ): Promise<number> {
     const content = await this.formatOutput(configName, timestamp, files)
     fileHandle.write(content)
