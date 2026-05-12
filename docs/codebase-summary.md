@@ -11,7 +11,6 @@ src/
       fileSplitter.ts
       fileUtils.ts
       ignoreRules.ts
-      path-resolver.ts
       processor.ts
       scanner.ts
       treeBuilder.ts
@@ -30,11 +29,16 @@ src/
   preload/
     index.ts
     index.d.ts
+  shared/
+    types.ts
   renderer/
     index.html
     src/
       App.tsx
       AttentionSidebar.tsx
+      hooks/
+      features/
+      components/
       main.tsx
       TreeView.tsx
       types/index.ts
@@ -88,7 +92,7 @@ Root configs:
 
 ### `ignoreRules.ts` — `IgnoreRules`
 - Loads `.gitignore` via `ignore` library.
-- Merges with built-in `DEFAULT_SETTINGS` (schema version 10).
+- Merges with built-in `DEFAULT_SETTINGS` (schema version 11).
 - Selection logic uses specificity (longest matching path wins).
 - Tri-state (`checked` | `unchecked` | `partial`) computed from included/excluded paths.
 - Persists to `_codebase/settings.json`.
@@ -131,21 +135,11 @@ Root configs:
 - macOS: AppleScript `set the clipboard to { POSIX file ... }`.
 - Linux: `wl-copy` (Wayland) -> `xclip` (X11) -> plain text fallback.
 
-### `path-resolver.ts` — WSL Path Mapping
-- Converts Linux/WSL paths to Windows UNC paths for seamless cross-platform support.
-- `resolveWorkspacePath(inputPath, wslConfig)`: Main resolver function.
-  - If WSL disabled OR path is Windows format (e.g., `C:\...`), returns path unchanged.
-  - If path starts with `/` (Linux format), converts to Windows UNC: `/home/user/project` → `\\wsl.localhost\Ubuntu-24.04\home\user\project`.
-- `isValidWslBasePath(basePath)`: Validates format starts with `\\wsl.localhost\` or `\\wsl$\`.
-- `formatWslBasePath(basePath)`: Trims and removes trailing backslash for consistent handling.
-- Integrated into `ipcHandlers.ts` `project:load` to resolve paths before file system access.
-- Settings persisted in `settings.json` with schema version 9: `wsl: { enabled: boolean; basePath: string }`.
-
 ## Worker Process (`src/main/worker/`)
 
 ### `protocol.ts` — Shared Types
 - NDJSON protocol for Worker ↔ Main Process communication.
-- `WorkerAction` union type: `INIT`, `BUILD_TREE`, `TOGGLE_NODE`, `UPDATE_SELECTION`, `UPDATE_PRIORITY`, `ATTENTION_PREVIEW`, `READ_PROMPT_FILE`, `RESET_PROMPT_FILE`, `SAVE_ATTENTION_PATTERNS`, `GET_SETTINGS`, `SAVE_SETTINGS`, `GET_WSL_CONFIG`, `SAVE_WSL_CONFIG`, `*_IGNORE_PATTERN`, `GENERATE`, `CANCEL_GENERATE`, `CLEAR_OUTPUT`, `SHUTDOWN`.
+- `WorkerAction` union type: `INIT`, `BUILD_TREE`, `TOGGLE_NODE`, `UPDATE_SELECTION`, `UPDATE_PRIORITY`, `ATTENTION_PREVIEW`, `READ_PROMPT_FILE`, `RESET_PROMPT_FILE`, `SAVE_ATTENTION_PATTERNS`, `GET_SETTINGS`, `SAVE_SETTINGS`, `*_IGNORE_PATTERN`, `GENERATE`, `CANCEL_GENERATE`, `CLEAR_OUTPUT`, `SHUTDOWN`.
 - `WorkerRequest`: `{ id, action, payload }` sent as NDJSON line.
 - `WorkerResponse`: `{ id, status: 'success'|'error'|'progress', data?, error?, progress?, message? }`.
 
@@ -211,14 +205,16 @@ Root configs:
 ## Renderer (`src/renderer/src/`)
 
 ### `App.tsx`
-- Root component. Split-pane UI via `react-split` (25/50/25).
-- Left pane: AttentionSidebar. Center: Workspace Settings. Right pane: tree explorer (Selected/Ignored tabs).
-- Manages project loading, generation state, tree interactions, drag-and-drop folder loading, auto-copy on success.
+- Root layout component. Split-pane UI via `react-split` (20/40/40).
+- Composes `useProject`, `useSettings`, and `useGenerator`.
+- Wires drag-and-drop folder loading, project/settings orchestration, toast display, and feature panels.
 - Vietnamese UI labels.
 - Attention patterns state (`attentionPatterns`) synced with sidebar and passed to `generate:start`.
-- Instructions state (`instructionsEnabled`) from settings, toggle persisted via `settings:save`.
-- LLM Instructions card: checkbox "Include LLM Instructions (instructions.md)" + Edit button to open file in default OS editor.
-- Handlers: browse, reload, start, cancel, toggle node, tree reorder, open folder, auto-copy, open settings, edit instructions, clear output.
+
+### `hooks/`
+- `useProject` owns project path/input, tree loading state, tab state, attention patterns, ignore patterns, tree toggles, and reorder persistence.
+- `useSettings(projectPath)` owns export formats, output splitting, instructions toggle, settings fetch/save.
+- `useGenerator(projectPath, settings, attentionPatterns)` owns generation state, progress, logs, toast, stats, and output file actions.
 
 ### `AttentionSidebar.tsx`
 - Right sidebar with 4 sections: AI Instruction, Attention Patterns (textarea), Matched Files (live preview), Global Ignore.
@@ -234,7 +230,7 @@ Root configs:
 - File icons vary by extension (`lucide-react`).
 
 ### `types/index.ts`
-- Central types: `TreeData`, `Stats`, `OutputFormats`, IPC response shapes.
+- Re-exports shared type-only contracts from `src/shared/types.ts` and keeps renderer-only aliases/types.
 - `TreeData.checked` is tri-state: `'checked' | 'unchecked' | 'partial'`.
 
 ### `main.tsx`

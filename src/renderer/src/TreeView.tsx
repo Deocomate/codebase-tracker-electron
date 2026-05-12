@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react'
+import { useState, type ChangeEvent, type ReactElement } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -28,17 +28,7 @@ import {
   File
 } from 'lucide-react'
 import type { TreeData } from './types'
-
-export function formatTokenCount(tokens: number): string {
-  if (!Number.isFinite(tokens) || tokens <= 0) return '0'
-  if (tokens < 1000) return tokens.toLocaleString()
-  if (tokens < 1_000_000) {
-    const value = tokens / 1000
-    return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}k`
-  }
-  const value = tokens / 1_000_000
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}M`
-}
+import { formatTokenCount } from './utils/formatTokenCount'
 
 interface TreeNodeProps {
   node: TreeData
@@ -53,7 +43,7 @@ function SortableTreeNode({
   onToggle, 
   onReorder,
   onAddIgnore
-}: TreeNodeProps) {
+}: TreeNodeProps): ReactElement {
   const [expanded, setExpanded] = useState(false)
   const {
     attributes,
@@ -70,7 +60,7 @@ function SortableTreeNode({
     opacity: isDragging ? 0.5 : 1
   }
 
-  const getIcon = () => {
+  const getIcon = (): ReactElement => {
     if (node.is_dir) {
       return expanded ? (
         <FolderOpen size={16} className="text-blue-500 shrink-0" />
@@ -179,8 +169,8 @@ interface TreeViewProps {
   emptyMessage?: string
 }
 
-export default function TreeView({ data, onToggle, onReorder, onAddIgnore, emptyMessage }: TreeViewProps) {
-  const [_, setActiveId] = useState<string | null>(null)
+export default function TreeView({ data, onToggle, onReorder, onAddIgnore, emptyMessage }: TreeViewProps): ReactElement {
+  const [, setActiveId] = useState<string | null>(null)
   
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -193,11 +183,11 @@ export default function TreeView({ data, onToggle, onReorder, onAddIgnore, empty
     })
   )
 
-  const handleDragStart = (event: DragStartEvent) => {
+  const handleDragStart = (event: DragStartEvent): void => {
     setActiveId(event.active.id as string)
   }
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event
     setActiveId(null)
 
@@ -234,7 +224,7 @@ export default function TreeView({ data, onToggle, onReorder, onAddIgnore, empty
     onReorder(newTreeData)
   }
 
-  const handleDragCancel = () => {
+  const handleDragCancel = (): void => {
     setActiveId(null)
   }
 

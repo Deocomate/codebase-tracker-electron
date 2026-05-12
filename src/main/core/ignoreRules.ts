@@ -56,10 +56,6 @@ interface Settings {
     split_enabled: boolean
     split_count: number
   }
-  wsl: {
-    enabled: boolean
-    basePath: string
-  }
   instructions: {
     enabled: boolean
   }
@@ -67,7 +63,7 @@ interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  schema_version: 10,
+  schema_version: 11,
   included_paths: [],
   excluded_paths: [],
   priority_roots: [],
@@ -81,7 +77,6 @@ const DEFAULT_SETTINGS: Settings = {
   attention_patterns: [],
   split_config: { enabled: true, split_count: 5, token_threshold: 40000 },
   ui: { selected_formats: ['txt'], split_enabled: true, split_count: 5 },
-  wsl: { enabled: false, basePath: '\\\\wsl.localhost\\Ubuntu-24.04' },
   instructions: { enabled: false },
   description: 'Cấu hình gom mã nguồn dự án.'
 }
@@ -186,7 +181,6 @@ export class IgnoreRules {
     }
     if ((this.settings.schema_version ?? 7) < 8) {
       this.settings.schema_version = 8
-      this.settings.wsl = { enabled: false, basePath: '\\\\wsl.localhost\\Ubuntu-24.04' }
     }
     if ((this.settings.schema_version ?? 8) < 9) {
       this.settings.schema_version = 9
@@ -198,12 +192,17 @@ export class IgnoreRules {
       this.settings.schema_version = 10
       this.settings.instructions = { enabled: false }
     }
+    if ((this.settings.schema_version ?? 10) < 11) {
+      this.settings.schema_version = 11
+      delete mutableSettings.wsl
+    }
     // Fill missing keys
     for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
       if (!(key in this.settings)) {
         mutableSettings[key] = this._deepClone(val)
       }
     }
+    delete mutableSettings.wsl
     this.settings.custom_ignore_patterns = this._normalizeIgnorePatterns(this.settings.custom_ignore_patterns)
     // Sync ui config
     const ui = this.settings.ui
@@ -540,21 +539,6 @@ export class IgnoreRules {
 
   getSettingsPath(): string {
     return this.settingsPath
-  }
-
-  getWslConfig(): { enabled: boolean; basePath: string } {
-    return {
-      enabled: Boolean(this.settings.wsl?.enabled ?? false),
-      basePath: String(this.settings.wsl?.basePath ?? '\\\\wsl.localhost\\Ubuntu-24.04')
-    }
-  }
-
-  async updateWslConfig(enabled: boolean, basePath: string, persist = true): Promise<void> {
-    this.settings.wsl = {
-      enabled: Boolean(enabled),
-      basePath: String(basePath).trim()
-    }
-    if (persist) await this._saveSettings()
   }
 
   async resetSettings(): Promise<void> {

@@ -39,10 +39,9 @@ main/
     fileSplitter.ts Header-preserving file chunking
     fileUtils.ts    isTextFile, readTextFile, path normalization
     clipboard.ts    Cross-platform file clipboard copy
-    path-resolver.ts WSL path mapping: Linux paths → Windows UNC paths
     formatters/
   worker/
-    index.ts        Worker manager: spawns child process, NDJSON communication
+    index.ts        Worker process: project scanning and generation over NDJSON
     protocol.ts     Shared types: WorkerAction, WorkerRequest, WorkerResponse, TreeNode
       baseFormatter.ts    Abstract formatter + comment stripping
       txtFormatter.ts     Plain text streaming
@@ -58,7 +57,9 @@ renderer/
   index.html        CSP-hardened entry HTML
   src/
     main.tsx             React 19 root mount
-    App.tsx              Root component: split pane, state, IPC listeners
+    App.tsx              Root layout: split pane, hook composition, drag/drop
+    hooks/               Project, settings, and generator state hooks
+    features/            Sidebar, project, settings, and generator panels
     AttentionSidebar.tsx  Glob pattern input, live preview, AI instruction copy, ignore mgmt
     TreeView.tsx         Recursive @dnd-kit sortable tree
     types/index.ts       Shared TypeScript interfaces
@@ -76,8 +77,6 @@ renderer/
 | `tree:updatePriority`        | R -> M    | Update priority root order.                  |
 | `settings:get`               | R -> M    | Retrieve UI preferences.                   |
 | `settings:save`              | R -> M    | Save UI preferences.                         |
-| `wsl:getConfig`              | R -> M    | Get WSL mode configuration.                  |
-| `wsl:saveConfig`             | R -> M    | Save WSL mode configuration.                 |
 | `attention:preview`          | R -> M    | Resolve glob patterns to matched file list.  |
 | `attention:savePatterns`     | R -> M    | Save attention patterns to settings.         |
 | `prompt:getInstruction`      | R -> M    | Read prompt file content.                    |
@@ -110,13 +109,16 @@ App.tsx -> window.api.load_project(path)
     v
 ipcHandlers.ts: project:load
     |
-    +-> path.resolve(folderPath)
-    +-> new IgnoreRules(resolvedPath).initialize()
+    +-> create WorkerManager(path)
+    +-> spawn worker via local Electron Node mode
+    +-> send INIT { path }
+    |
+    +-> worker initializes IgnoreRules
     |       +-> load .gitignore
     |       +-> load _codebase/settings.json (or create defaults)
     |       +-> compile rules
     |
-    +-> buildTreeNode(absPath, '.') recursively
+    +-> worker builds tree recursively
     |       +-> sort children by priority > checked-state > dir > alpha
     |
     +-> return { status, project_path, tree }
@@ -194,15 +196,14 @@ ipcHandlers.ts: tree:updatePriority -> ignoreRules.updatePriorityRoots
 
 ```ts
 interface WindowState {
-  rules: IgnoreRules | null
-  cancelRef: { cancelled: boolean }
+  workerManager: WorkerManager | null
 }
 
 const windowStates = new Map<number, WindowState>()
 ```
 
 - `windowStates` maps `webContents.id` to a dedicated `WindowState`.
-- Each window gets its own `IgnoreRules` instance and isolated `cancelRef`, preventing cross-window leaks and enabling multi-window support.
+- Each window gets its own `WorkerManager`, preventing cross-window worker leaks and enabling multi-window support.
 - `cleanupWindowState(webContentsId)` is called on `window.closed` to release memory.
 - `safeSend(sender, channel, ...args)` skips sending if the window has already been destroyed.
 

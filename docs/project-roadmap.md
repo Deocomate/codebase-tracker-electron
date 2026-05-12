@@ -11,6 +11,7 @@
 - [x] Auto-splitting for TXT output.
 - [x] Cross-platform clipboard file copy.
 - [x] Per-project settings persistence (`_codebase/settings.json`).
+- [x] Native host-path worker execution; WSL-specific path mapping has been removed.
 - [x] Windows (NSIS), macOS (DMG), Linux (AppImage/Snap/DEB) packaging.
 
 ## Phase 1 — Performance & Scalability
@@ -30,14 +31,14 @@
 | 6 | Allow multiple project windows simultaneously. | Planned |
 | 7 | Handle unhandled rejections from background `generate:start` promise and surface to renderer. | Done |
 
-## Phase 3 — WSL & Cross-Platform Support
+## Phase 3 — Native Path Support
 
 | # | Task | Status |
 |---|------|--------|
-| 12 | WSL path mapping (Linux paths ↔ Windows UNC paths with auto-resolution). | Done |
-| 13 | WSL Base Path configuration UI with validation and error handling. | Done |
-| 14 | Persistent WSL settings in `settings.json` (schema v8). | Done |
-| 15 | Support both `\\wsl.localhost\` and `\\wsl$\` UNC path formats. | Done |
+| 12 | Remove WSL path mapping and run workers only on native host OS paths. | Done |
+| 13 | Remove WSL configuration UI, IPC channels, and settings persistence. | Done |
+| 14 | Migrate settings schema to v11 and delete legacy WSL keys. | Done |
+| 15 | Keep cross-platform file operations for Windows, macOS, and Linux native paths. | Done |
 
 ## Phase 4 — Extensibility & DX
 

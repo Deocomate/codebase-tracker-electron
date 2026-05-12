@@ -7,8 +7,8 @@ import {
   type ReactElement
 } from 'react'
 import { Copy, EyeOff, FileText, Link2, Loader2, RefreshCw, X, Focus } from 'lucide-react'
-import { formatTokenCount } from './TreeView'
 import PatternEditor from './components/PatternEditor'
+import { formatTokenCount } from './utils/formatTokenCount'
 
 const PREVIEW_LIMIT = 100
 const ATTENTION_DEBOUNCE_MS = 300

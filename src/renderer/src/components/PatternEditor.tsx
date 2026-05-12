@@ -120,6 +120,7 @@ export default function PatternEditor({
   const [popupPosition, setPopupPosition] = useState<PopupPosition>({ left: 8, top: 8 })
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [isFocused, setIsFocused] = useState(false)
+  const [isSuppressed, setIsSuppressed] = useState(false)
   const currentToken = tokenInfo?.token ?? ''
 
   const suggestions = useMemo(() => {
@@ -128,7 +129,7 @@ export default function PatternEditor({
     return getGlobSuggestions(currentToken, availablePaths, MAX_SUGGESTIONS)
   }, [availablePaths, currentToken, disabled])
 
-  const showSuggestions = isFocused && suggestions.length > 0
+  const showSuggestions = isFocused && suggestions.length > 0 && !isSuppressed
   const activeSuggestionIndex = suggestions.length > 0
     ? Math.min(selectedIndex, suggestions.length - 1)
     : 0
@@ -164,23 +165,31 @@ export default function PatternEditor({
     const nextCaret = tokenInfo.start + suggestion.length + newline.length
     onChange(nextValue)
     setTokenInfo(null)
+    setIsSuppressed(true)
 
     requestAnimationFrame(() => {
       const textarea = textareaRef.current
       if (!textarea) return
       textarea.focus()
       textarea.setSelectionRange(nextCaret, nextCaret)
-      updatePopup(nextValue, nextCaret)
     })
-  }, [onChange, tokenInfo, updatePopup, value])
+  }, [onChange, tokenInfo, value])
 
   const handleChange = (event: ChangeEvent<HTMLTextAreaElement>): void => {
     const nextValue = event.target.value
+    setIsSuppressed(false)
     onChange(nextValue)
     updatePopup(nextValue, event.target.selectionStart)
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if ((event.ctrlKey || event.metaKey) && (event.code === 'Space' || event.key === ' ')) {
+      event.preventDefault()
+      setIsSuppressed(false)
+      updatePopup(value, event.currentTarget.selectionStart)
+      return
+    }
+
     if (!showSuggestions) return
 
     if (event.key === 'ArrowDown') {
@@ -203,6 +212,7 @@ export default function PatternEditor({
 
     if (event.key === 'Escape') {
       event.preventDefault()
+      setIsSuppressed(true)
       setTokenInfo(null)
     }
   }

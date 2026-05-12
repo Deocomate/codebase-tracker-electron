@@ -1,9 +1,7 @@
 import { ipcMain, dialog, shell, Menu, BrowserWindow } from 'electron'
 import fs from 'fs/promises'
 import { copyFilesToClipboard } from './clipboard'
-import { resolveWorkspacePath } from './core/path-resolver'
 import { WorkerManager } from './WorkerManager'
-import { linuxToWindows } from './pathMapper'
 import type { WorkerAction } from './worker/protocol'
 import path from 'path'
 
@@ -69,7 +67,7 @@ export function registerIpcHandlers(): void {
     return canceled ? null : filePaths[0]
   })
 
-  ipcMain.handle('project:load', async (event, folderPath: string, frontendWslConfig?: { enabled: boolean; basePath: string }) => {
+  ipcMain.handle('project:load', async (event, folderPath: string) => {
     if (!folderPath) return { error: 'Invalid path' }
     const state = getWindowState(event)
 
@@ -81,42 +79,24 @@ export function registerIpcHandlers(): void {
       }
 
       // 2. Resolve the actual FS path for validation
-      let actualFsPath = folderPath.trim()
-      if (frontendWslConfig && frontendWslConfig.enabled) {
-        actualFsPath = resolveWorkspacePath(folderPath, frontendWslConfig)
-      }
+      const actualFsPath = folderPath.trim()
 
       // 3. Create and start WorkerManager
       const manager = new WorkerManager({
-        projectPath: actualFsPath,
-        wslConfig: frontendWslConfig
+        projectPath: actualFsPath
       })
-
-      // 4. Validate WSL environment if needed
-      if (manager.isWsl) {
-        const validation = await manager.validateEnvironment()
-        if (!validation.ok) {
-          return { error: validation.error }
-        }
-      }
 
       await manager.start()
       state.workerManager = manager
 
-      // 5. Set up crash handler
+      // 4. Set up crash handler
       manager.on('crash', (err: Error) => {
         safeSend(event.sender, 'generate:finished', false, `Worker crashed: ${err.message}`, null)
       })
 
-      // 6. Send INIT to Worker
-      // For WSL projects, send the Linux native path to the Worker
-      const workerPath = manager.isWsl && manager.linuxProjectPath
-        ? manager.linuxProjectPath
-        : actualFsPath
-
+      // 5. Send INIT to Worker
       const result = await manager.send('INIT', {
-        path: workerPath,
-        wslConfig: frontendWslConfig
+        path: actualFsPath
       }) as Record<string, unknown>
 
       if (result.error) {
@@ -126,7 +106,7 @@ export function registerIpcHandlers(): void {
         return { error: String(result.error) }
       }
 
-      // 7. Mark as initialized — enables auto-restart on crash
+      // 6. Mark as initialized — enables auto-restart on crash
       manager.markInitialized()
 
       return {
@@ -144,7 +124,7 @@ export function registerIpcHandlers(): void {
       const message = getErrorMessage(err)
       if (message.includes('ENOENT') || message.includes('no such file')) {
         return {
-          error: 'Không thể truy cập thư mục. Nếu bạn dùng định dạng /home/..., hãy đảm bảo đã bật WSL Mode và nhập đúng Base Path.'
+          error: 'Không thể truy cập thư mục. Kiểm tra đường dẫn dự án.'
         }
       }
       return { error: message }
@@ -221,32 +201,6 @@ export function registerIpcHandlers(): void {
         splitCount: args.splitCount,
         instructionsEnabled: args.instructionsEnabled
       })
-      return { status: 'success' }
-    } catch (err: unknown) {
-      return { error: getErrorMessage(err) }
-    }
-  })
-
-  ipcMain.handle('wsl:getConfig', async (event) => {
-    const state = getWindowState(event)
-    try {
-      const result = await workerSend(state, 'GET_WSL_CONFIG') as Record<string, unknown>
-      return { status: 'success', ...result }
-    } catch (err: unknown) {
-      return { error: getErrorMessage(err) }
-    }
-  })
-
-  ipcMain.handle('wsl:saveConfig', async (event, args: { enabled: boolean; basePath: string }) => {
-    const state = getWindowState(event)
-    try {
-      const result = await workerSend(state, 'SAVE_WSL_CONFIG', {
-        enabled: args.enabled,
-        basePath: args.basePath
-      })
-      if (result && typeof result === 'object' && 'error' in result && result.error) {
-        return { error: String(result.error) }
-      }
       return { status: 'success' }
     } catch (err: unknown) {
       return { error: getErrorMessage(err) }
@@ -399,16 +353,10 @@ export function registerIpcHandlers(): void {
     return { status: 'success' }
   })
 
-  ipcMain.handle('file:openFile', async (event, filePath: string) => {
-    const state = getWindowState(event)
+  ipcMain.handle('file:openFile', async (_event, filePath: string) => {
     if (!filePath) return { error: 'Invalid path' }
 
-    let resolvedPath = filePath
-    if (state.workerManager?.isWsl && state.workerManager.distro && filePath.startsWith('/')) {
-      resolvedPath = linuxToWindows(filePath, state.workerManager.distro)
-    } else if (!path.isAbsolute(filePath)) {
-      resolvedPath = path.resolve(filePath)
-    }
+    const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath)
 
     const openError = await shell.openPath(resolvedPath)
     if (openError) return { error: openError }

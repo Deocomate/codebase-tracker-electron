@@ -45,7 +45,8 @@ export async function copyFilesToClipboard(filePaths: string[]): Promise<{ succe
     }
 
     return { success: true, message: `Đã copy ${validPaths.length} file vào bộ nhớ tạm!` }
-  } catch (err: any) {
-    return { success: false, message: `Lỗi clipboard: ${err.message || String(err)}` }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, message: `Lỗi clipboard: ${message}` }
   }
 }

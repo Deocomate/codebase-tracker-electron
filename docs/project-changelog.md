@@ -1,5 +1,14 @@
 # Project Changelog — Codebase Tracker
 
+## 2026-05-12
+
+- **Removed WSL Runtime Support**: Simplified project loading and worker execution to native host OS paths only.
+  - Deleted WSL path mapping utilities and WSL-specific worker spawning.
+  - Removed WSL IPC channels and preload APIs.
+  - Removed WSL configuration UI and settings persistence; settings schema is now v11 and legacy `wsl` keys are deleted on migration.
+  - Introduced `src/shared/types.ts` as a type-only shared contract for Main, Preload, Worker, and Renderer.
+  - Split renderer state into `useProject`, `useSettings`, and `useGenerator`, with `App.tsx` reduced to layout composition.
+
 ## 2026-05-11
 
 - **LLM Instructions Integration**: Added auto-generated `instructions.md` template with user-editable project context, conventions, and AI rules.
@@ -29,15 +38,7 @@
 
 ## 2026-05-09
 
-- **Added WSL Path Support**: Complete Windows Subsystem for Linux (WSL) integration for seamless path mapping.
-  - New `path-resolver.ts` utility converts Linux paths to Windows UNC paths automatically.
-  - UI: New "WSL Configuration" settings card with Enable/Disable toggle and Base Path configuration.
-  - Modal dialog for WSL settings with validation and user-friendly error messages.
-  - Persistent storage in `settings.json` (schema v8) with `wsl: { enabled, basePath }`.
-  - IPC handlers: `wsl:getConfig`, `wsl:saveConfig` for configuration management.
-  - Automatic path resolution during project load with helpful error messages for misconfigured WSL paths.
-  - Supports both `\\wsl.localhost\` and `\\wsl$\` UNC path formats.
-  - **Usage**: Enable WSL Mode, set Base Path (e.g., `\\wsl.localhost\Ubuntu-24.04`), then enter Linux paths normally.
+- **Historical**: Added WSL path support. This feature was removed on 2026-05-12 in favor of native host OS paths only.
 
 ## 2026-05-04
 

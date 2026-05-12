@@ -1,14 +1,13 @@
 /**
  * WorkerManager: Manages the lifecycle of a Worker child process.
  * 
- * Handles spawning (WSL or local), NDJSON request/response mapping,
+ * Handles local spawning, NDJSON request/response mapping,
  * progress event forwarding, error recovery, and graceful shutdown.
  */
 
-import { spawn, ChildProcess, execSync } from 'child_process'
+import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
 import { EventEmitter } from 'events'
-import { extractDistro, windowsToLinux, windowsToWslMount, isWslPath } from './pathMapper'
 import type { WorkerRequest, WorkerResponse, WorkerAction } from './worker/protocol'
 
 // ==================== Types ====================
@@ -20,10 +19,8 @@ interface PendingRequest {
 }
 
 export interface WorkerManagerOptions {
-  /** The original project path (could be WSL UNC or Windows path) */
+  /** The project path on the host OS */
   projectPath: string
-  /** WSL configuration from frontend */
-  wslConfig?: { enabled: boolean; basePath: string }
 }
 
 // ==================== Constants ====================
@@ -42,79 +39,17 @@ export class WorkerManager extends EventEmitter {
   private initialized = false
   private restartTimestamps: number[] = []
 
-  // Cached WSL info (populated during validateEnvironment)
-  private wslNodePath: string | null = null
   private lastErrorLog = ''
 
   // Immutable config set at construction
   public readonly projectPath: string
-  public readonly isWsl: boolean
-  public readonly distro: string | null
-  public readonly linuxProjectPath: string | null
 
   constructor(options: WorkerManagerOptions) {
     super()
     this.projectPath = options.projectPath
-
-    // Determine if this is a WSL project
-    if (options.wslConfig?.enabled && isWslPath(options.projectPath)) {
-      this.isWsl = true
-      this.distro = extractDistro(options.projectPath)
-      this.linuxProjectPath = windowsToLinux(options.projectPath)
-    } else {
-      this.isWsl = false
-      this.distro = null
-      this.linuxProjectPath = null
-    }
   }
 
   // ==================== Public API ====================
-
-  /**
-   * Validate that the WSL environment has Node.js installed.
-   * Uses the user's interactive shell to discover the absolute path to node
-   * (critical for NVM-installed Node.js which isn't in the default PATH).
-   */
-  async validateEnvironment(): Promise<{ ok: boolean; error?: string }> {
-    if (!this.isWsl || !this.distro) {
-      return { ok: true }
-    }
-
-    // 1. Detect user's default shell in WSL
-    let defaultShell = 'bash'
-    try {
-      const shellResult = execSync(
-        `wsl.exe -d ${this.distro} -- sh -c "basename \\"$SHELL\\""`,
-        { timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe'] }
-      )
-      defaultShell = shellResult.toString().trim() || 'bash'
-      console.log(`[WorkerManager] WSL default shell: ${defaultShell}`)
-    } catch {
-      // fallback to bash
-    }
-
-    // 2. Find absolute path to node using interactive shell (loads NVM/profile)
-    try {
-      const nodeCheck = execSync(
-        `wsl.exe -d ${this.distro} -- ${defaultShell} -ic "which node"`,
-        { timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'] }
-      )
-      const nodePath = nodeCheck.toString().trim()
-
-      if (!nodePath || nodePath.includes('not found')) {
-        throw new Error('Node not found')
-      }
-
-      this.wslNodePath = nodePath
-      console.log(`[WorkerManager] WSL Node.js path: ${this.wslNodePath}`)
-      return { ok: true }
-    } catch {
-      return {
-        ok: false,
-        error: `Cần cài đặt Node.js trong môi trường ${this.distro} để sử dụng tính năng WSL.\n\nCách cài đặt:\n  1. Mở terminal WSL (${this.distro})\n  2. Chạy: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash\n  3. Restart terminal, rồi chạy: nvm install --lts`
-      }
-    }
-  }
 
   /**
    * Spawn the Worker child process.
@@ -127,43 +62,14 @@ export class WorkerManager extends EventEmitter {
 
     const workerScriptPath = this.getWorkerScriptPath()
 
-    if (this.isWsl && this.distro) {
-      // Spawn inside WSL using the ABSOLUTE path to node (discovered during validation).
-      // This avoids needing interactive shell (-ic) which causes signal/prompt issues.
-      // wsl.exe -e <absolute_node_path> <worker_script> works perfectly with stdin/stdout piping.
-      const linuxWorkerPath = windowsToWslMount(workerScriptPath)
-
-      if (this.wslNodePath) {
-        // Best path: use absolute node path directly — no shell overhead, clean stdio
-        console.log(`[WorkerManager] WSL spawn: wsl.exe -d ${this.distro} -e ${this.wslNodePath} ${linuxWorkerPath}`)
-        this.child = spawn('wsl.exe', [
-          '-d', this.distro, '-e',
-          this.wslNodePath, linuxWorkerPath
-        ], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true
-        })
-      } else {
-        // Fallback: try plain `node` (might work if installed system-wide)
-        console.log(`[WorkerManager] WSL spawn (fallback): wsl.exe -d ${this.distro} -e node ${linuxWorkerPath}`)
-        this.child = spawn('wsl.exe', [
-          '-d', this.distro, '-e',
-          'node', linuxWorkerPath
-        ], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true
-        })
-      }
-    } else {
-      // Spawn local Node.js process using Electron binary in Node mode.
-      // ELECTRON_RUN_AS_NODE=1 tells Electron to behave as plain Node.js.
-      console.log(`[WorkerManager] Local spawn: ${process.execPath} ${workerScriptPath}`)
-      this.child = spawn(process.execPath, [workerScriptPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
-      })
-    }
+    // Spawn local Node.js process using Electron binary in Node mode.
+    // ELECTRON_RUN_AS_NODE=1 tells Electron to behave as plain Node.js.
+    console.log(`[WorkerManager] Local spawn: ${process.execPath} ${workerScriptPath}`)
+    this.child = spawn(process.execPath, [workerScriptPath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    })
 
     this.setupChildHandlers()
   }

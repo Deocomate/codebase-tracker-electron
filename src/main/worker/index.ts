@@ -1,12 +1,11 @@
 /**
  * Worker Process Entry Point
  * 
- * This runs as a standalone Node.js process (either via `node` on Windows
- * or via `wsl.exe -e node` for WSL projects). It communicates with the
+ * This runs as a standalone local Node.js process. It communicates with the
  * Electron Main Process through stdin/stdout using NDJSON protocol.
  * 
- * All heavy FS operations (scan, search, combine) run here on the native
- * file system, bypassing the slow \\wsl.localhost\ network bridge.
+ * All heavy FS operations (scan, search, combine) run here to keep the
+ * Electron Main Process responsive.
  */
 
 import { IgnoreRules } from '../core/ignoreRules'
@@ -140,7 +139,6 @@ async function rebuildProjectTree(): Promise<TreeNode | null> {
 
 async function handleInit(id: string, payload: Record<string, unknown>): Promise<void> {
   const fsPath = payload.path as string
-  const wslConfig = payload.wslConfig as { enabled: boolean; basePath: string } | undefined
 
   try {
     await fs.stat(fsPath)
@@ -148,11 +146,6 @@ async function handleInit(id: string, payload: Record<string, unknown>): Promise
     projectPath = fsPath
     rules = new IgnoreRules(fsPath)
     await rules.initialize()
-
-    // Save WSL config if provided
-    if (wslConfig) {
-      await rules.updateWslConfig(wslConfig.enabled, wslConfig.basePath, true)
-    }
 
     const rootNode = await buildTreeNode(rules, fsPath, '.')
 
@@ -307,28 +300,6 @@ async function handleSaveSettings(id: string, payload: Record<string, unknown>):
   sendSuccess(id, {})
 }
 
-async function handleGetWslConfig(id: string): Promise<void> {
-  if (!rules) return sendError(id, 'Project chưa được load')
-  sendSuccess(id, { config: rules.getWslConfig() })
-}
-
-async function handleSaveWslConfig(id: string, payload: Record<string, unknown>): Promise<void> {
-  if (!rules) return sendError(id, 'Project chưa được load')
-
-  const enabled = payload.enabled as boolean
-  const basePath = payload.basePath as string
-
-  if (enabled && basePath) {
-    const trimmed = basePath.trim()
-    if (!trimmed.startsWith('\\\\wsl.localhost\\') && !trimmed.startsWith('\\\\wsl$\\')) {
-      return sendError(id, 'WSL Base Path phải bắt đầu bằng \\\\wsl.localhost\\ hoặc \\\\wsl$\\')
-    }
-  }
-
-  await rules.updateWslConfig(enabled, basePath, true)
-  sendSuccess(id, {})
-}
-
 async function handleGetIgnorePatterns(id: string): Promise<void> {
   if (!rules) return sendSuccess(id, { patterns: [] })
   sendSuccess(id, { patterns: rules.getCustomIgnorePatterns() })
@@ -464,10 +435,6 @@ async function dispatch(request: WorkerRequest): Promise<void> {
         return handleGetSettings(id)
       case 'SAVE_SETTINGS':
         return handleSaveSettings(id, p)
-      case 'GET_WSL_CONFIG':
-        return handleGetWslConfig(id)
-      case 'SAVE_WSL_CONFIG':
-        return handleSaveWslConfig(id, p)
       case 'GET_IGNORE_PATTERNS':
         return handleGetIgnorePatterns(id)
       case 'ADD_IGNORE_PATTERN':

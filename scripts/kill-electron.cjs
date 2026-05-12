@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // scripts/kill-electron.cjs
 const { execSync } = require('child_process');
 
@@ -10,16 +11,16 @@ try {
       try {
         // /F: Force, /T: Kill child tree, /IM: Image name
         execSync(`taskkill /F /T /IM ${proc}`, { stdio: 'ignore' });
-      } catch (e) {
+      } catch {
         // Bỏ qua nếu không tìm thấy tiến trình (không in ra lỗi rác)
       }
     }
   } else {
     // Cho MacOS / Linux
-    try { execSync('pkill -9 -f electron', { stdio: 'ignore' }); } catch(e){}
-    try { execSync('pkill -9 -f codebase-tracker', { stdio: 'ignore' }); } catch(e){}
+    try { execSync('pkill -9 -f electron', { stdio: 'ignore' }); } catch { /* ignore missing process */ }
+    try { execSync('pkill -9 -f codebase-tracker', { stdio: 'ignore' }); } catch { /* ignore missing process */ }
   }
   console.log('✅ Đã dọn dẹp các tiến trình Electron & Codebase Tracker chạy ngầm.');
-} catch (e) {
+} catch {
   console.log('Không có tiến trình nào cần dọn dẹp.');
 }

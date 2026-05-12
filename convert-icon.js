@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const pngToIco = require('png-to-ico').default;
 const fs = require('fs');
 const path = require('path');

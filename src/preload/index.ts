@@ -1,11 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type {
+  AttentionPreviewResponse,
+  GenerationStartResponse,
+  GenerationStats,
+  IgnorePatternMutationResponse,
+  IgnorePatternsResponse,
+  IgnorePreviewResponse,
+  LoadProjectResponse,
+  PromptInstructionResponse,
+  SaveAttentionPatternsResponse,
+  SettingsResponse,
+  SimpleResponse,
+  TreeMutationResponse
+} from '../shared/types'
 
 export interface IpcApi {
   // Dialogs
   open_directory_dialog: () => Promise<string | null>
 
   // Project
-  load_project: (folderPath: string, wslConfig?: { enabled: boolean; basePath: string }) => Promise<LoadProjectResponse>
+  load_project: (folderPath: string) => Promise<LoadProjectResponse>
   toggle_tree_node: (path: string, isChecked: boolean) => Promise<TreeMutationResponse>
   update_tree_selection: (includedPaths: string[], excludedPaths: string[]) => Promise<SimpleResponse>
   update_priority: (listRoots: string[]) => Promise<SimpleResponse>
@@ -13,11 +27,12 @@ export interface IpcApi {
 
   // Settings
   get_settings: () => Promise<SettingsResponse>
-  save_settings: (selectedFormats: string[], splitEnabled: boolean, splitCount: number, instructionsEnabled?: boolean) => Promise<SimpleResponse>
-
-  // WSL Configuration
-  get_wsl_config: () => Promise<WslConfigResponse>
-  save_wsl_config: (enabled: boolean, basePath: string) => Promise<SimpleResponse>
+  save_settings: (
+    selectedFormats: string[],
+    splitEnabled: boolean,
+    splitCount: number,
+    instructionsEnabled?: boolean
+  ) => Promise<SimpleResponse>
 
   // Attention Context
   preview_attention: (patterns: string[]) => Promise<AttentionPreviewResponse>
@@ -59,121 +74,12 @@ export interface IpcApi {
   ) => () => void
 }
 
-export interface SimpleResponse {
-  status?: string
-  error?: string
-  message?: string
-}
-
-export interface AttentionFileEntry {
-  absPath: string
-  relPath: string
-  tokens?: number
-  isRelated?: boolean
-  importedBy?: string
-}
-
-export interface AttentionPreviewResponse {
-  files: AttentionFileEntry[]
-  error?: string
-}
-
-export interface PromptInstructionResponse {
-  content: string
-  error?: string
-}
-
-export interface SaveAttentionPatternsResponse {
-  patterns: string[]
-  error?: string
-}
-
-export interface IpcTreeNode {
-  id: string
-  name: string
-  is_dir: boolean
-  is_ignored: boolean
-  selectable: boolean
-  checked: 'checked' | 'unchecked' | 'partial'
-  tokens: number
-  children: IpcTreeNode[]
-}
-
-export interface LoadProjectResponse {
-  status?: string
-  error?: string
-  project_path?: string
-  tree?: IpcTreeNode
-  attention_patterns?: string[]
-}
-
-export interface TreeMutationResponse {
-  status?: string
-  error?: string
-  tree?: IpcTreeNode
-}
-
-export interface SettingsResponse {
-  status?: string
-  error?: string
-  ui_preferences?: {
-    selected_formats: string[]
-    split_enabled: boolean
-    split_count: number
-  }
-  priority_roots?: string[]
-  instructions_config?: {
-    enabled: boolean
-  }
-}
-
-export interface WslConfigResponse {
-  status?: string
-  error?: string
-  config?: {
-    enabled: boolean
-    basePath: string
-  }
-}
-
-export interface GenerationStartResponse {
-  status?: string
-  error?: string
-}
-
-export interface GenerationStats {
-  total_files_included: number
-  total_chars: number
-  generated_files: string[]
-  output_dir?: string
-  structure_file?: string
-  ignored_items?: number
-  summary?: string
-}
-
-export interface IgnorePatternsResponse {
-  patterns: string[]
-  error?: string
-}
-
-export interface IgnorePatternMutationResponse {
-  status?: string
-  patterns?: string[]
-  tree?: IpcTreeNode
-  error?: string
-}
-
-export interface IgnorePreviewResponse {
-  files: AttentionFileEntry[]
-  error?: string
-}
-
 const api: IpcApi = {
   // ---- Dialogs ----
   open_directory_dialog: () => ipcRenderer.invoke('dialog:openDirectory'),
 
   // ---- Project ----
-  load_project: (folderPath, wslConfig) => ipcRenderer.invoke('project:load', folderPath, wslConfig),
+  load_project: (folderPath) => ipcRenderer.invoke('project:load', folderPath),
   toggle_tree_node: (path, isChecked) => ipcRenderer.invoke('tree:toggleNode', { path, isChecked }),
   update_tree_selection: (includedPaths, excludedPaths) =>
     ipcRenderer.invoke('tree:updateSelection', { includedPaths, excludedPaths }),
@@ -184,11 +90,6 @@ const api: IpcApi = {
   get_settings: () => ipcRenderer.invoke('settings:get'),
   save_settings: (selectedFormats, splitEnabled, splitCount, instructionsEnabled?) =>
     ipcRenderer.invoke('settings:save', { selectedFormats, splitEnabled, splitCount, instructionsEnabled }),
-
-  // ---- WSL Configuration ----
-  get_wsl_config: () => ipcRenderer.invoke('wsl:getConfig'),
-  save_wsl_config: (enabled, basePath) =>
-    ipcRenderer.invoke('wsl:saveConfig', { enabled, basePath }),
 
   // ---- Attention Context ----
   preview_attention: (patterns) => ipcRenderer.invoke('attention:preview', patterns),
@@ -226,7 +127,6 @@ const api: IpcApi = {
       callback(progress, message)
     }
     ipcRenderer.on('generate:progress', handler)
-    // Return unsubscribe function
     return (): void => {
       ipcRenderer.removeListener('generate:progress', handler)
     }
