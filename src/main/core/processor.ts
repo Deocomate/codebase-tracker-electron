@@ -2,13 +2,17 @@ import { FileScanner } from './scanner'
 import { FileCombiner, CombinerStats } from './combiner'
 import { IgnoreRules } from './ignoreRules'
 import ignore from 'ignore'
+import fs from 'fs/promises'
+import path from 'path'
+import { isTextFile } from './fileUtils'
+import { collectRelatedDependencies } from './dependencyParser'
 
 type ProgressCallback = (message: string, progress: number) => void
 
 export interface ProcessorResult {
   success: boolean
   message: string
-  stats: CombinerStats | {}
+  stats: CombinerStats | Record<string, never>
 }
 
 export class ProjectProcessor {
@@ -44,17 +48,70 @@ export class ProjectProcessor {
         .filter(Boolean)
 
       if (effectivePatterns.length > 0) {
-        scanCallback('Applying attention patterns...', -1)
-
+        scanCallback('Finding attention files...', -1)
         const attnIg = ignore().add(effectivePatterns)
-        const secondaryFiles: FileEntry[] = []
-        const attentionFiles: FileEntry[] = []
+        const attentionFilesMap = new Map<string, FileEntry>()
 
+        // Quét độc lập để bắt toàn bộ các file khớp pattern 
+        // (Ép đưa vào Context kể cả khi user không tick trong TreeView)
+        const walk = async (relDir: string): Promise<void> => {
+          const absDir = relDir ? path.join(this.projectPath, relDir) : this.projectPath
+          let entries
+          try {
+            entries = await fs.readdir(absDir, { withFileTypes: true })
+          } catch {
+            return
+          }
+          for (const entry of entries) {
+            if (entry.name === '_codebase') continue
+            const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+            
+            // Vẫn tôn trọng Global Ignore (.git, node_modules, .env...)
+            if (this.ignoreRules.isGloballyIgnoredByRelPath(relPath, entry.isDirectory())) continue
+
+            if (entry.isDirectory()) {
+              await walk(relPath)
+            } else {
+              const checkPath = relPath.replace(/\\/g, '/')
+              if (attnIg.ignores(checkPath)) {
+                // Chỉ lấy file văn bản (code), bỏ qua file ảnh/zip
+                if (isTextFile(relPath)) {
+                  attentionFilesMap.set(relPath, {
+                    absPath: path.join(this.projectPath, relPath),
+                    relPath,
+                    isAttention: true
+                  })
+                }
+              }
+            }
+          }
+        }
+
+        await walk('')
+
+        const directAttentionFiles = Array.from(attentionFilesMap.values())
+        const relatedAttentionFiles = await collectRelatedDependencies(this.projectPath, directAttentionFiles, {
+          ignoreRules: this.ignoreRules,
+          existingRelPaths: new Set(attentionFilesMap.keys())
+        })
+
+        for (const relatedFile of relatedAttentionFiles) {
+          attentionFilesMap.set(relatedFile.relPath, {
+            absPath: relatedFile.absPath,
+            relPath: relatedFile.relPath,
+            isAttention: true,
+            isRelated: true,
+            importedBy: relatedFile.importedBy
+          })
+        }
+
+        const secondaryFiles: FileEntry[] = []
+        const attentionFiles: FileEntry[] = Array.from(attentionFilesMap.values())
+
+        // Phân tách các file user đã chọn trong TreeView
         for (const file of categorizedFiles.codebase) {
-          const normPath = file.relPath.replace(/\\/g, '/')
-          if (attnIg.ignores(normPath)) {
-            attentionFiles.push({ ...file, isAttention: true })
-          } else {
+          // Tránh bị trùng lặp nếu file đó vừa được tick, vừa nằm trong attention pattern
+          if (!attentionFilesMap.has(file.relPath)) {
             secondaryFiles.push(file)
           }
         }
@@ -91,8 +148,9 @@ export class ProjectProcessor {
       }
 
       return result
-    } catch (err: any) {
-      return { success: false, message: `An unexpected error occurred: ${err.message}`, stats: {} }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { success: false, message: `An unexpected error occurred: ${message}`, stats: {} }
     }
   }
 }
@@ -101,4 +159,6 @@ interface FileEntry {
   absPath: string
   relPath: string
   isAttention?: boolean
+  isRelated?: boolean
+  importedBy?: string
 }

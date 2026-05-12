@@ -45,6 +45,14 @@ export interface SimpleResponse {
   message?: string
 }
 
+export interface AttentionFileEntry {
+  absPath: string
+  relPath: string
+  tokens?: number
+  isRelated?: boolean
+  importedBy?: string
+}
+
 export interface SettingsResponse {
   status?: string
   error?: string

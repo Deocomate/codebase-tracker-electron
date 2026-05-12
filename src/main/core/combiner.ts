@@ -11,6 +11,8 @@ interface FileEntry {
   absPath: string
   relPath: string
   isAttention?: boolean
+  isRelated?: boolean
+  importedBy?: string
 }
 
 export interface CombinerStats {
@@ -45,7 +47,7 @@ export class FileCombiner {
     cancelRef?: { cancelled: boolean },
     exportFormats?: string[],
     splitCountArg?: number | null
-  ): Promise<{ success: boolean; message: string; stats: CombinerStats | {} }> {
+  ): Promise<{ success: boolean; message: string; stats: CombinerStats | Record<string, never> }> {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
     const generatedFiles: string[] = []
 

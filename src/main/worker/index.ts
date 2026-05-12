@@ -11,7 +11,8 @@
 
 import { IgnoreRules } from '../core/ignoreRules'
 import { ProjectProcessor } from '../core/processor'
-import type { WorkerRequest, WorkerResponse, TreeNode } from './protocol'
+import { collectRelatedDependencies } from '../core/dependencyParser'
+import type { WorkerRequest, WorkerResponse, TreeNode, AttentionFileEntry } from './protocol'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -221,7 +222,7 @@ async function handleAttentionPreview(id: string, payload: Record<string, unknow
   if (patterns.length === 0) return sendSuccess(id, { files: [] })
 
   const attnIg = (await import('ignore')).default().add(patterns)
-  const results: Array<{ absPath: string; relPath: string; tokens?: number }> = []
+  const results: AttentionFileEntry[] = []
 
   const walk = async (relDir: string): Promise<void> => {
     const absDir = relDir ? path.join(projectPath!, relDir) : projectPath!
@@ -252,6 +253,13 @@ async function handleAttentionPreview(id: string, payload: Record<string, unknow
   }
 
   await walk('')
+  const existingRelPaths = new Set(results.map((file) => file.relPath))
+  const relatedFiles = await collectRelatedDependencies(projectPath, results, {
+    ignoreRules: rules,
+    maxSourceFiles: 20,
+    existingRelPaths
+  })
+  results.push(...relatedFiles)
   sendSuccess(id, { files: results })
 }
 

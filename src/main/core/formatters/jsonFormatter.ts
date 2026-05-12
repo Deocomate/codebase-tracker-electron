@@ -8,8 +8,11 @@ export class JsonFormatter extends BaseFormatter {
   async formatOutput(
     _configName: string,
     _timestamp: string,
-    _files: { absPath: string; relPath: string }[]
+    _files: { absPath: string; relPath: string; isAttention?: boolean; isRelated?: boolean; importedBy?: string }[]
   ): Promise<string> {
+    void _configName
+    void _timestamp
+    void _files
     throw new Error('Not implemented: JsonFormatter requires streaming via writeOutput.')
   }
 
@@ -18,7 +21,7 @@ export class JsonFormatter extends BaseFormatter {
     fileHandle: { write: (s: string) => boolean },
     configName: string,
     timestamp: string,
-    files: { absPath: string; relPath: string; isAttention?: boolean }[],
+    files: { absPath: string; relPath: string; isAttention?: boolean; isRelated?: boolean; importedBy?: string }[],
     instructionContent?: string | null
   ): Promise<number> {
     let chars = 0
@@ -38,13 +41,15 @@ export class JsonFormatter extends BaseFormatter {
     chars += header.length
 
     for (let i = 0; i < files.length; i++) {
-      const { absPath, relPath, isAttention } = files[i]
+      const { absPath, relPath, isAttention, isRelated, importedBy } = files[i]
       const content = await this._readFileContent(absPath, relPath)
 
       const fileObj = {
         path: relPath.replace(/\\/g, '/'),
         language: this._getLanguageFromExtension(relPath),
         is_attention: Boolean(isAttention),
+        is_related: Boolean(isRelated),
+        imported_by: importedBy || null,
         content: content
       }
 

@@ -8,21 +8,23 @@ export class TxtFormatter extends BaseFormatter {
   async formatOutput(
     configName: string,
     timestamp: string,
-    files: { absPath: string; relPath: string; isAttention?: boolean }[]
+    files: { absPath: string; relPath: string; isAttention?: boolean; isRelated?: boolean; importedBy?: string }[]
   ): Promise<string> {
     const parts: string[] = []
     parts.push(`# ${configName} | ${files.length} files | ${timestamp}\n`)
 
     let attentionMarkerInserted = false
 
-    for (const { absPath, relPath, isAttention } of files) {
+    for (const { absPath, relPath, isAttention, isRelated, importedBy } of files) {
       if (isAttention && !attentionMarkerInserted) {
         parts.push(ATTENTION_MARKER)
         attentionMarkerInserted = true
       }
 
       const content = await this._readFileContent(absPath, relPath)
-      const prefix = isAttention ? '// [ATTENTION] ' : '// '
+      const prefix = isRelated
+        ? `// [ATTENTION RELATED: imported by ${importedBy || 'unknown'}] `
+        : isAttention ? '// [ATTENTION] ' : '// '
       parts.push(`${prefix}${relPath}\n${content}\n`)
     }
 
@@ -33,7 +35,7 @@ export class TxtFormatter extends BaseFormatter {
     fileHandle: { write: (s: string) => boolean },
     configName: string,
     timestamp: string,
-    files: { absPath: string; relPath: string; isAttention?: boolean }[],
+    files: { absPath: string; relPath: string; isAttention?: boolean; isRelated?: boolean; importedBy?: string }[],
     instructionContent?: string | null
   ): Promise<number> {
     let chars = 0
@@ -49,7 +51,7 @@ export class TxtFormatter extends BaseFormatter {
 
     let attentionMarkerInserted = false
 
-    for (const { absPath, relPath, isAttention } of files) {
+    for (const { absPath, relPath, isAttention, isRelated, importedBy } of files) {
       if (isAttention && !attentionMarkerInserted) {
         fileHandle.write(ATTENTION_MARKER)
         chars += ATTENTION_MARKER.length
@@ -57,7 +59,9 @@ export class TxtFormatter extends BaseFormatter {
       }
 
       const content = await this._readFileContent(absPath, relPath)
-      const prefix = isAttention ? '// [ATTENTION] ' : '// '
+      const prefix = isRelated
+        ? `// [ATTENTION RELATED: imported by ${importedBy || 'unknown'}] `
+        : isAttention ? '// [ATTENTION] ' : '// '
       const chunk = `${prefix}${relPath}\n${content}\n\n`
       fileHandle.write(chunk)
       chars += chunk.length

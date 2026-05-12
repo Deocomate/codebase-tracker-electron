@@ -13,15 +13,20 @@ export abstract class BaseFormatter {
 
   constructor(public stripComments = true) {}
 
-  abstract formatOutput(configName: string, timestamp: string, files: { absPath: string; relPath: string }[]): Promise<string>
+  abstract formatOutput(
+    configName: string,
+    timestamp: string,
+    files: { absPath: string; relPath: string; isAttention?: boolean; isRelated?: boolean; importedBy?: string }[]
+  ): Promise<string>
 
   async writeOutput(
     fileHandle: { write: (s: string) => boolean },
     configName: string,
     timestamp: string,
-    files: { absPath: string; relPath: string; isAttention?: boolean }[],
+    files: { absPath: string; relPath: string; isAttention?: boolean; isRelated?: boolean; importedBy?: string }[],
     _instructionContent?: string | null
   ): Promise<number> {
+    void _instructionContent
     const content = await this.formatOutput(configName, timestamp, files)
     fileHandle.write(content)
     return content.length

@@ -57,3 +57,11 @@ export interface TreeNode {
   tokens: number
   children: TreeNode[]
 }
+
+export interface AttentionFileEntry {
+  absPath: string
+  relPath: string
+  tokens?: number
+  isRelated?: boolean
+  importedBy?: string
+}

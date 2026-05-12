@@ -3,11 +3,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
+  type MouseEvent,
   type ReactElement
 } from 'react'
-import { Copy, EyeOff, FileText, Loader2, RefreshCw, X, Focus } from 'lucide-react'
+import { Copy, EyeOff, FileText, Link2, Loader2, RefreshCw, X, Focus } from 'lucide-react'
 import { formatTokenCount } from './TreeView'
+import PatternEditor from './components/PatternEditor'
 
 const PREVIEW_LIMIT = 100
 const ATTENTION_DEBOUNCE_MS = 300
@@ -16,6 +17,8 @@ interface PreviewFile {
   absPath: string
   relPath: string
   tokens?: number
+  isRelated?: boolean
+  importedBy?: string
 }
 
 function splitRelPath(relPath: string): { fileName: string; dirPath: string } {
@@ -30,6 +33,7 @@ interface AttentionSidebarProps {
   projectPath: string | null
   attentionPatterns: string[]
   ignorePatterns: string[]
+  availablePaths: string[]
   onPatternsChange: (patterns: string[]) => void
   onAddIgnorePattern: (pattern: string) => void | Promise<void>
   onRemoveIgnorePattern: (pattern: string) => void | Promise<void>
@@ -40,6 +44,7 @@ export default function AttentionSidebar({
   projectPath,
   attentionPatterns,
   ignorePatterns,
+  availablePaths,
   onPatternsChange,
   onAddIgnorePattern,
   onRemoveIgnorePattern,
@@ -51,12 +56,36 @@ export default function AttentionSidebar({
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [ignoreInput, setIgnoreInput] = useState('')
   const [isCopying, setIsCopying] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const [isOpenModifierDown, setIsOpenModifierDown] = useState(false)
+  const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const previewRequestRef = useRef(0)
+  const lastProjectPathRef = useRef<string | null>(null)
+  const hasInitializedPatternsRef = useRef(false)
+  const skipNextSaveRef = useRef(false)
 
   useEffect(() => {
-    setTextareaValue(attentionPatterns.join('\n'))
+    if (lastProjectPathRef.current === projectPath) return
+
+    lastProjectPathRef.current = projectPath
+    hasInitializedPatternsRef.current = false
+    skipNextSaveRef.current = false
+    previewRequestRef.current += 1
+    setTextareaValue('')
+    setPreviewFiles([])
+    setPreviewError(null)
+
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current)
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
   }, [projectPath])
+
+  useEffect(() => {
+    if (!projectPath || disabled || hasInitializedPatternsRef.current) return
+
+    skipNextSaveRef.current = true
+    hasInitializedPatternsRef.current = true
+    setTextareaValue(attentionPatterns.join('\n'))
+  }, [attentionPatterns, disabled, projectPath])
 
   const patterns = useMemo(() => {
     return textareaValue
@@ -67,17 +96,24 @@ export default function AttentionSidebar({
 
   useEffect(() => {
     if (disabled || patterns.length === 0) {
+      let cancelled = false
       previewRequestRef.current += 1
-      setPreviewFiles([])
-      setPreviewError(null)
-      return
+      queueMicrotask(() => {
+        if (cancelled) return
+        setIsLoadingPreview(false)
+        setPreviewFiles([])
+        setPreviewError(null)
+      })
+      return () => {
+        cancelled = true
+      }
     }
 
     let cancelled = false
     const requestId = ++previewRequestRef.current
 
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current)
+    previewDebounceRef.current = setTimeout(async () => {
       if (cancelled || previewRequestRef.current !== requestId) return
 
       setIsLoadingPreview(true)
@@ -104,17 +140,42 @@ export default function AttentionSidebar({
 
     return () => {
       cancelled = true
-      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current)
     }
-  }, [textareaValue, disabled])
+  }, [patterns, disabled])
 
   useEffect(() => {
-    if (disabled) return
-    const timer = setTimeout(() => {
+    const updateModifierState = (event: KeyboardEvent): void => {
+      setIsOpenModifierDown(event.ctrlKey || event.metaKey)
+    }
+    const resetModifierState = (): void => setIsOpenModifierDown(false)
+
+    window.addEventListener('keydown', updateModifierState)
+    window.addEventListener('keyup', updateModifierState)
+    window.addEventListener('blur', resetModifierState)
+    return () => {
+      window.removeEventListener('keydown', updateModifierState)
+      window.removeEventListener('keyup', updateModifierState)
+      window.removeEventListener('blur', resetModifierState)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (disabled || !projectPath || !hasInitializedPatternsRef.current) return
+
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false
+      return
+    }
+
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    saveDebounceRef.current = setTimeout(() => {
       onPatternsChange(patterns)
     }, 500)
-    return () => clearTimeout(timer)
-  }, [textareaValue])
+    return () => {
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    }
+  }, [disabled, onPatternsChange, patterns, projectPath])
 
   const handleCopyInstruction = async (): Promise<void> => {
     setIsCopying(true)
@@ -132,8 +193,8 @@ export default function AttentionSidebar({
     await window.api.reset_prompt_instruction()
   }
 
-  const handleTextareaChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
-    setTextareaValue(e.target.value)
+  const handleTextareaChange = (value: string): void => {
+    setTextareaValue(value)
   }
 
   const handleIgnoreKeyDown = async (e: { key: string }): Promise<void> => {
@@ -144,7 +205,18 @@ export default function AttentionSidebar({
     setIgnoreInput('')
   }
 
+  const handlePreviewFileClick = async (e: MouseEvent<HTMLDivElement>, file: PreviewFile): Promise<void> => {
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    const result = await window.api.open_file(file.absPath)
+    if (result.error) {
+      setPreviewError(result.error)
+    }
+  }
+
   const totalTokens = previewFiles.reduce((sum, f) => sum + (f.tokens ?? 0), 0)
+  const relatedCount = previewFiles.filter((file) => file.isRelated).length
+  const matchedCount = previewFiles.length - relatedCount
 
   return (
     <aside className="flex h-full flex-col overflow-hidden border-r border-borderDark/20 bg-white">
@@ -181,18 +253,16 @@ export default function AttentionSidebar({
           <FileText size={14} />
           Attention Patterns
         </div>
-        <textarea
+        <PatternEditor
           value={textareaValue}
           onChange={handleTextareaChange}
+          availablePaths={availablePaths}
           disabled={disabled}
           placeholder={
             disabled
               ? 'Open a project to start...'
               : 'src/auth/**\n*.controller.ts\nsrc/types/user.types.ts'
           }
-          spellCheck={false}
-          className="w-full resize-none rounded-sm border border-borderDark bg-white px-2 py-1.5 text-[13px] font-mono leading-relaxed transition focus:border-accent focus:outline-none disabled:opacity-50"
-          style={{ height: '160px' }}
         />
       </section>
 
@@ -204,7 +274,8 @@ export default function AttentionSidebar({
           </span>
           {patterns.length > 0 && (
             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-              Matched: {previewFiles.length} | Tokens: {formatTokenCount(totalTokens)}
+              Matched: {matchedCount}
+              {relatedCount > 0 ? ` (+${relatedCount} Related)` : ''} | Tokens: {formatTokenCount(totalTokens)}
             </span>
           )}
         </div>
@@ -227,22 +298,41 @@ export default function AttentionSidebar({
             <>
               {previewFiles.map((file) => {
                 const { fileName, dirPath } = splitRelPath(file.relPath)
+                const isRelated = Boolean(file.isRelated)
+                const Icon = isRelated ? Link2 : FileText
                 return (
                   <div
                     key={file.absPath}
-                    className="border-b border-gray-100 px-3 py-1.5 transition-colors hover:bg-blue-50/70"
-                    title={file.relPath}
+                    onClick={(e) => handlePreviewFileClick(e, file)}
+                    className={[
+                      'border-b border-gray-100 py-1.5 transition-colors hover:bg-blue-50/70',
+                      isRelated ? 'pl-7 pr-3' : 'px-3',
+                      isOpenModifierDown ? 'cursor-pointer' : ''
+                    ].filter(Boolean).join(' ')}
+                    title={isOpenModifierDown ? `Open ${file.relPath}` : file.relPath}
                   >
                     <div className="flex items-center justify-between min-w-0">
                       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-semibold text-gray-800">
-                        <FileText size={14} className="shrink-0 text-blue-500" />
-                        <span className="truncate">{fileName}</span>
+                        <Icon size={14} className={`shrink-0 ${isRelated ? 'text-slate-400' : 'text-blue-500'}`} />
+                        <span className={`truncate ${isOpenModifierDown ? 'underline decoration-dotted underline-offset-2' : ''}`}>
+                          {fileName}
+                        </span>
+                        {isRelated && (
+                          <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                            Related
+                          </span>
+                        )}
                       </div>
                       <span className="ml-2 shrink-0 rounded-full bg-slate-200/70 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
                         {formatTokenCount(file.tokens || 0)}
                       </span>
                     </div>
                     <div className="truncate pl-5 text-[11px] text-gray-500">{dirPath}</div>
+                    {isRelated && file.importedBy && (
+                      <div className="truncate pl-5 text-[10px] text-slate-400">
+                        Imported by: {file.importedBy}
+                      </div>
+                    )}
                   </div>
                 )
               })}

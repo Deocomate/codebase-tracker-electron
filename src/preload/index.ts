@@ -41,6 +41,7 @@ export interface IpcApi {
   cancel_generation: () => Promise<SimpleResponse>
 
   // File operations
+  open_file: (path: string) => Promise<SimpleResponse>
   open_file_explorer: (path: string) => Promise<SimpleResponse>
   open_output_folder: () => Promise<SimpleResponse>
   open_settings_file: () => Promise<SimpleResponse>
@@ -68,6 +69,8 @@ export interface AttentionFileEntry {
   absPath: string
   relPath: string
   tokens?: number
+  isRelated?: boolean
+  importedBy?: string
 }
 
 export interface AttentionPreviewResponse {
@@ -206,6 +209,7 @@ const api: IpcApi = {
   cancel_generation: () => ipcRenderer.invoke('generate:cancel'),
 
   // ---- File operations ----
+  open_file: (path) => ipcRenderer.invoke('file:openFile', path),
   open_file_explorer: (path) => ipcRenderer.invoke('file:openExplorer', path),
   open_output_folder: () => ipcRenderer.invoke('file:openOutputFolder'),
   open_settings_file: () => ipcRenderer.invoke('file:openSettingsFile'),

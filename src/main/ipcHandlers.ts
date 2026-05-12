@@ -3,6 +3,8 @@ import fs from 'fs/promises'
 import { copyFilesToClipboard } from './clipboard'
 import { resolveWorkspacePath } from './core/path-resolver'
 import { WorkerManager } from './WorkerManager'
+import { linuxToWindows } from './pathMapper'
+import type { WorkerAction } from './worker/protocol'
 import path from 'path'
 
 // ---- QUẢN LÝ STATE THEO TỪNG WINDOW ----
@@ -54,7 +56,7 @@ async function workerSend(
   if (!state.workerManager || !state.workerManager.isRunning) {
     throw new Error('Project chưa được load')
   }
-  return state.workerManager.send(action as any, payload, progressCallback)
+  return state.workerManager.send(action as WorkerAction, payload, progressCallback)
 }
 
 // ------------------------------------------
@@ -117,11 +119,11 @@ export function registerIpcHandlers(): void {
         wslConfig: frontendWslConfig
       }) as Record<string, unknown>
 
-      if (result && (result as any).error) {
+      if (result.error) {
         // INIT failed — kill zombie worker to prevent issues
         await manager.kill().catch(() => {})
         state.workerManager = null
-        return { error: (result as any).error }
+        return { error: String(result.error) }
       }
 
       // 7. Mark as initialized — enables auto-restart on crash
@@ -130,8 +132,8 @@ export function registerIpcHandlers(): void {
       return {
         status: 'success',
         project_path: actualFsPath,
-        tree: (result as any)?.tree,
-        attention_patterns: (result as any)?.attention_patterns || []
+        tree: result.tree,
+        attention_patterns: Array.isArray(result.attention_patterns) ? result.attention_patterns : []
       }
     } catch (err: unknown) {
       // Clean up worker if it was started but INIT threw
@@ -242,8 +244,8 @@ export function registerIpcHandlers(): void {
         enabled: args.enabled,
         basePath: args.basePath
       })
-      if (result && (result as any).error) {
-        return { error: (result as any).error }
+      if (result && typeof result === 'object' && 'error' in result && result.error) {
+        return { error: String(result.error) }
       }
       return { status: 'success' }
     } catch (err: unknown) {
@@ -394,6 +396,22 @@ export function registerIpcHandlers(): void {
     } else {
       shell.showItemInFolder(resolvedPath)
     }
+    return { status: 'success' }
+  })
+
+  ipcMain.handle('file:openFile', async (event, filePath: string) => {
+    const state = getWindowState(event)
+    if (!filePath) return { error: 'Invalid path' }
+
+    let resolvedPath = filePath
+    if (state.workerManager?.isWsl && state.workerManager.distro && filePath.startsWith('/')) {
+      resolvedPath = linuxToWindows(filePath, state.workerManager.distro)
+    } else if (!path.isAbsolute(filePath)) {
+      resolvedPath = path.resolve(filePath)
+    }
+
+    const openError = await shell.openPath(resolvedPath)
+    if (openError) return { error: openError }
     return { status: 'success' }
   })
 

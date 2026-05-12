@@ -14,76 +14,16 @@ import {
 import TreeView from './TreeView'
 import AttentionSidebar from './AttentionSidebar'
 import type { TreeData, Stats, OutputFormats, LoadProjectResponse } from './types'
+import {
+  collectTreeIds,
+  filterTreeByTab,
+  getFlatPathsFromTree,
+  mergeTreeOrder,
+  type SidebarTab
+} from './utils/treeUtils'
 
 // Lấy WSL config mặc định từ localStorage để giữ cấu hình trên toàn App
 const defaultWsl = JSON.parse(localStorage.getItem('globalWslConfig') || '{"enabled":false,"basePath":"\\\\\\\\wsl.localhost\\\\Ubuntu-24.04"}');
-
-type SidebarTab = 'selected' | 'ignored'
-
-function filterTreeByTab(node: TreeData | null, tab: SidebarTab): TreeData | null {
-  if (!node) return null
-
-  if (tab === 'selected' && node.is_ignored) {
-    return null
-  }
-
-  const filteredChildren = node.children
-    .map((child) => filterTreeByTab(child, tab))
-    .filter((child): child is TreeData => child !== null)
-
-  if (tab === 'ignored' && node.is_ignored) {
-    return {
-      ...node,
-      children: filteredChildren
-    }
-  }
-
-  const matchesTab = tab === 'selected'
-    ? node.checked !== 'unchecked'
-    : node.checked !== 'checked'
-
-  if (!matchesTab && filteredChildren.length === 0) return null
-
-  return {
-    ...node,
-    tokens: node.is_dir
-      ? filteredChildren.reduce((sum, child) => sum + child.tokens, 0)
-      : node.tokens,
-    children: filteredChildren
-  }
-}
-
-function mergeTreeOrder(fullNode: TreeData, reorderedNode: TreeData): TreeData {
-  if (!fullNode.children.length) return { ...fullNode, children: [] }
-
-  const fullChildMap = new Map(fullNode.children.map((child) => [child.id, child]))
-  const visibleChildIds = new Set(reorderedNode.children.map((child) => child.id))
-  const reorderedVisibleChildren = reorderedNode.children.map((child) => {
-    const fullChild = fullChildMap.get(child.id)
-    return fullChild ? mergeTreeOrder(fullChild, child) : child
-  })
-
-  let visibleIndex = 0
-  const mergedChildren = fullNode.children.map((child) => {
-    if (!visibleChildIds.has(child.id)) return child
-    const nextVisibleChild = reorderedVisibleChildren[visibleIndex]
-    visibleIndex += 1
-    return nextVisibleChild ?? child
-  })
-
-  return {
-    ...fullNode,
-    children: mergedChildren
-  }
-}
-
-function collectTreeIds(node: TreeData): string[] {
-  const ids = [node.id]
-  for (const child of node.children) {
-    ids.push(...collectTreeIds(child))
-  }
-  return ids
-}
 
 interface CardProps {
   title: string
@@ -188,8 +128,9 @@ function App(): ReactElement {
       setProjectPath(res.project_path || normalized)
       setProjectPathInput(res.project_path || normalized)
       const tree = res.tree
+      const loadedPatterns = Array.isArray(res.attention_patterns) ? res.attention_patterns : []
       setTreeData(tree)
-      setTreeLoadState('ready')
+      setAttentionPatterns(loadedPatterns)
 
       // ---> THÊM ĐOẠN NÀY ĐỂ ĐỒNG BỘ SPLITTING SETTINGS <---
       const settingsRes = await window.api.get_settings()
@@ -205,14 +146,12 @@ function App(): ReactElement {
         }
       }
       // ---------------------------------------------------
+      setTreeLoadState('ready')
       setLogs((prev) => [...prev, `Load thành công dự án: ${tree.name}`])
 
       const ignoreRes = await window.api.get_ignore_patterns()
       const loadedIgnorePatterns = Array.isArray(ignoreRes.patterns) ? ignoreRes.patterns : []
       setIgnorePatterns(loadedIgnorePatterns)
-
-      const loadedPatterns = Array.isArray(res.attention_patterns) ? res.attention_patterns : []
-      setAttentionPatterns(loadedPatterns)
     } else {
       setTreeLoadState('error')
       setTreeLoadError(res.error || 'Không thể load project')
@@ -254,7 +193,15 @@ function App(): ReactElement {
 
   const handleAttentionPatternsChange = useCallback(async (patterns: string[]): Promise<void> => {
     if (!projectPath || isGenerating) return
-    await window.api.save_attention_patterns(patterns)
+
+    // Cập nhật state ngay lập tức để hàm handleStart lấy được giá trị mới nhất
+    setAttentionPatterns(patterns)
+
+    const res = await window.api.save_attention_patterns(patterns)
+    // Cập nhật lại một lần nữa từ dữ liệu chuẩn hoá của backend (nếu có)
+    if (res && res.patterns) {
+      setAttentionPatterns(res.patterns)
+    }
   }, [projectPath, isGenerating])
 
   const handleAddIgnorePattern = useCallback(async (pattern: string): Promise<void> => {
@@ -314,7 +261,7 @@ function App(): ReactElement {
     newSplitEnabled: boolean,
     newSplitCount: number,
     newInstructionsEnabled?: boolean
-  ) => {
+  ): Promise<void> => {
     setFormats(newFormats)
     setSplitEnabled(newSplitEnabled)
     setSplitCount(newSplitCount)
@@ -326,7 +273,7 @@ function App(): ReactElement {
     }
   }
 
-  const handleWslConfigChange = async (enabled: boolean, basePath: string) => {
+  const handleWslConfigChange = async (enabled: boolean, basePath: string): Promise<void> => {
     const newConfig = { enabled, basePath }
     setWslConfig(newConfig)
     localStorage.setItem('globalWslConfig', JSON.stringify(newConfig))
@@ -348,6 +295,7 @@ function App(): ReactElement {
     () => filterTreeByTab(treeData, activeTab),
     [treeData, activeTab]
   )
+  const availablePaths = useMemo(() => getFlatPathsFromTree(treeData), [treeData])
 
   const treeEmptyMessage = !projectPath
     ? 'No folder opened.'
@@ -406,16 +354,61 @@ function App(): ReactElement {
         </div>
       )}
 
-      <Split sizes={[25, 50, 25]} minSize={[250, 400, 250]} gutterSize={2} className="split w-full h-full">
-        <AttentionSidebar
-          projectPath={projectPath}
-          attentionPatterns={attentionPatterns}
-          ignorePatterns={ignorePatterns}
-          onPatternsChange={handleAttentionPatternsChange}
-          onAddIgnorePattern={handleAddIgnorePattern}
-          onRemoveIgnorePattern={handleRemoveIgnorePattern}
-          disabled={isGenerating || !projectPath || treeLoadState !== 'ready'}
-        />
+      <Split sizes={[20, 40, 40]} minSize={[250, 400, 350]} gutterSize={2} className="split w-full h-full">
+        <aside className="h-full bg-bgPanel flex flex-col overflow-hidden border-r border-borderDark/20">
+          <div className="flex border-b border-borderDark/20 bg-white shrink-0">
+            <button
+              className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
+                activeTab === 'selected'
+                  ? 'border-b-2 border-accent text-accent'
+                  : 'text-textMuted hover:bg-gray-50 hover:text-textMain'
+              }`}
+              onClick={() => setActiveTab('selected')}
+            >
+              <CheckCircle size={14} /> Selected
+            </button>
+            <button
+              className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
+                activeTab === 'ignored'
+                  ? 'border-b-2 border-danger text-danger'
+                  : 'text-textMuted hover:bg-gray-50 hover:text-textMain'
+              }`}
+              onClick={() => setActiveTab('ignored')}
+            >
+              <XCircle size={14} /> Ignored
+            </button>
+          </div>
+
+          <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-borderDark/20">
+            <div className="flex items-center gap-2 text-xs font-semibold text-textMuted uppercase tracking-wider">
+              <FolderSearch size={14} /> Explorer
+            </div>
+
+            {projectPath && (
+              <button
+                onClick={handleReload}
+                disabled={isGenerating || isReloading}
+                className="text-textMuted hover:text-accent transition-colors disabled:opacity-50"
+                title="Tải lại danh sách file (Reload)"
+              >
+                <RefreshCw
+                  size={14}
+                  className={isReloading ? 'animate-spin' : ''}
+                />
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-auto">
+            <TreeView
+              data={filteredTreeData}
+              onToggle={handleToggleNode}
+              onReorder={handleTreeReorder}
+              onAddIgnore={handleAddIgnorePattern}
+              emptyMessage={treeEmptyMessage}
+            />
+          </div>
+        </aside>
 
         <main className="h-full bg-white overflow-y-auto px-8 py-8">
           <div className="max-w-5xl mx-auto">
@@ -637,60 +630,16 @@ function App(): ReactElement {
           </div>
         </main>
 
-        <aside className="h-full bg-bgPanel flex flex-col overflow-hidden border-l border-borderDark/20">
-          <div className="flex border-b border-borderDark/20 bg-white shrink-0">
-            <button
-              className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
-                activeTab === 'selected'
-                  ? 'border-b-2 border-accent text-accent'
-                  : 'text-textMuted hover:bg-gray-50 hover:text-textMain'
-              }`}
-              onClick={() => setActiveTab('selected')}
-            >
-              <CheckCircle size={14} /> Selected
-            </button>
-            <button
-              className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${
-                activeTab === 'ignored'
-                  ? 'border-b-2 border-danger text-danger'
-                  : 'text-textMuted hover:bg-gray-50 hover:text-textMain'
-              }`}
-              onClick={() => setActiveTab('ignored')}
-            >
-              <XCircle size={14} /> Ignored
-            </button>
-          </div>
-
-          <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-borderDark/20">
-            <div className="flex items-center gap-2 text-xs font-semibold text-textMuted uppercase tracking-wider">
-              <FolderSearch size={14} /> Explorer
-            </div>
-
-            {projectPath && (
-              <button
-                onClick={handleReload}
-                disabled={isGenerating || isReloading}
-                className="text-textMuted hover:text-accent transition-colors disabled:opacity-50"
-                title="Tải lại danh sách file (Reload)"
-              >
-                <RefreshCw
-                  size={14}
-                  className={isReloading ? 'animate-spin' : ''}
-                />
-              </button>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-auto">
-            <TreeView
-              data={filteredTreeData}
-              onToggle={handleToggleNode}
-              onReorder={handleTreeReorder}
-              onAddIgnore={handleAddIgnorePattern}
-              emptyMessage={treeEmptyMessage}
-            />
-          </div>
-        </aside>
+        <AttentionSidebar
+          projectPath={projectPath}
+          attentionPatterns={attentionPatterns}
+          ignorePatterns={ignorePatterns}
+          availablePaths={availablePaths}
+          onPatternsChange={handleAttentionPatternsChange}
+          onAddIgnorePattern={handleAddIgnorePattern}
+          onRemoveIgnorePattern={handleRemoveIgnorePattern}
+          disabled={isGenerating || !projectPath || treeLoadState !== 'ready'}
+        />
       </Split>
 
 
