@@ -133,3 +133,9 @@ export interface IgnorePreviewResponse {
   files: AttentionFileEntry[]
   error?: string
 }
+
+export interface WindowPinResponse {
+  status?: string
+  error?: string
+  isPinned?: boolean
+}

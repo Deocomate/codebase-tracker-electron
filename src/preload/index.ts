@@ -11,7 +11,8 @@ import type {
   SaveAttentionPatternsResponse,
   SettingsResponse,
   SimpleResponse,
-  TreeMutationResponse
+  TreeMutationResponse,
+  WindowPinResponse
 } from '../shared/types'
 
 export interface IpcApi {
@@ -21,7 +22,10 @@ export interface IpcApi {
   // Project
   load_project: (folderPath: string) => Promise<LoadProjectResponse>
   toggle_tree_node: (path: string, isChecked: boolean) => Promise<TreeMutationResponse>
-  update_tree_selection: (includedPaths: string[], excludedPaths: string[]) => Promise<SimpleResponse>
+  update_tree_selection: (
+    includedPaths: string[],
+    excludedPaths: string[]
+  ) => Promise<SimpleResponse>
   update_priority: (listRoots: string[]) => Promise<SimpleResponse>
   show_tree_context_menu: (path: string, isDir: boolean) => Promise<string | null>
 
@@ -67,6 +71,9 @@ export interface IpcApi {
   // Utility
   test_connection: (message: string) => Promise<string>
 
+  // Window
+  toggle_pin: (isPinned: boolean) => Promise<WindowPinResponse>
+
   // Event listeners (Main -> Renderer)
   onProgressUpdate: (callback: (progress: number, message: string) => void) => () => void
   onGenerationFinished: (
@@ -84,12 +91,18 @@ const api: IpcApi = {
   update_tree_selection: (includedPaths, excludedPaths) =>
     ipcRenderer.invoke('tree:updateSelection', { includedPaths, excludedPaths }),
   update_priority: (listRoots) => ipcRenderer.invoke('tree:updatePriority', listRoots),
-  show_tree_context_menu: (path, isDir) => ipcRenderer.invoke('tree:showContextMenu', { path, isDir }),
+  show_tree_context_menu: (path, isDir) =>
+    ipcRenderer.invoke('tree:showContextMenu', { path, isDir }),
 
   // ---- Settings ----
   get_settings: () => ipcRenderer.invoke('settings:get'),
   save_settings: (selectedFormats, splitEnabled, splitCount, instructionsEnabled?) =>
-    ipcRenderer.invoke('settings:save', { selectedFormats, splitEnabled, splitCount, instructionsEnabled }),
+    ipcRenderer.invoke('settings:save', {
+      selectedFormats,
+      splitEnabled,
+      splitCount,
+      instructionsEnabled
+    }),
 
   // ---- Attention Context ----
   preview_attention: (patterns) => ipcRenderer.invoke('attention:preview', patterns),
@@ -106,7 +119,12 @@ const api: IpcApi = {
 
   // ---- Generation ----
   start_generation: (selectedFormats, splitEnabled, splitCount, attentionPatterns) =>
-    ipcRenderer.invoke('generate:start', { selectedFormats, splitEnabled, splitCount, attentionPatterns }),
+    ipcRenderer.invoke('generate:start', {
+      selectedFormats,
+      splitEnabled,
+      splitCount,
+      attentionPatterns
+    }),
   cancel_generation: () => ipcRenderer.invoke('generate:cancel'),
 
   // ---- File operations ----
@@ -121,9 +139,16 @@ const api: IpcApi = {
   // ---- Utility ----
   test_connection: (message) => ipcRenderer.invoke('util:testConnection', message),
 
+  // ---- Window ----
+  toggle_pin: (isPinned) => ipcRenderer.invoke('window:togglePin', isPinned),
+
   // ---- Event listeners (trả về unsubscribe function) ----
   onProgressUpdate: (callback): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, progress: number, message: string): void => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: number,
+      message: string
+    ): void => {
       callback(progress, message)
     }
     ipcRenderer.on('generate:progress', handler)

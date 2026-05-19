@@ -1,4 +1,5 @@
 import { ipcMain, dialog, shell, Menu, BrowserWindow } from 'electron'
+import type { Rectangle } from 'electron'
 import fs from 'fs/promises'
 import { copyFilesToClipboard } from './clipboard'
 import { WorkerManager } from './WorkerManager'
@@ -11,6 +12,10 @@ interface WindowState {
 }
 
 const windowStates = new Map<number, WindowState>()
+const MINI_CONTENT_WIDTH = 340
+const MINI_CONTENT_HEIGHT = 180
+const MINI_MIN_CONTENT_WIDTH = 320
+const MINI_MIN_CONTENT_HEIGHT = 170
 
 export function getWindowState(event: Electron.IpcMainInvokeEvent): WindowState {
   const id = event.sender.id
@@ -60,6 +65,44 @@ async function workerSend(
 // ------------------------------------------
 
 export function registerIpcHandlers(): void {
+  const windowBoundsMap = new Map<number, Rectangle>()
+
+  ipcMain.handle('window:togglePin', (event, isPinned: boolean) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return { error: 'Window not found', isPinned: !isPinned }
+
+    const winId = window.id
+
+    if (isPinned) {
+      windowBoundsMap.set(winId, window.getBounds())
+
+      const bounds = window.getBounds()
+      const contentBounds = window.getContentBounds()
+      const frameWidth = Math.max(0, bounds.width - contentBounds.width)
+      const frameHeight = Math.max(0, bounds.height - contentBounds.height)
+
+      window.setMinimumSize(
+        MINI_MIN_CONTENT_WIDTH + frameWidth,
+        MINI_MIN_CONTENT_HEIGHT + frameHeight
+      )
+      window.setContentSize(MINI_CONTENT_WIDTH, MINI_CONTENT_HEIGHT, true)
+      window.setAlwaysOnTop(true, 'screen-saver')
+    } else {
+      window.setAlwaysOnTop(false)
+      window.setMinimumSize(900, 600)
+
+      const oldBounds = windowBoundsMap.get(winId)
+      if (oldBounds) {
+        window.setBounds(oldBounds, true)
+        windowBoundsMap.delete(winId)
+      } else {
+        window.setSize(1200, 750, true)
+      }
+    }
+
+    return { status: 'success', isPinned }
+  })
+
   ipcMain.handle('dialog:openDirectory', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openDirectory']
