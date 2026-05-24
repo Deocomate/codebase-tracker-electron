@@ -6,6 +6,7 @@ import ignore, { Ignore } from 'ignore'
 const SETTINGS_FILENAME = 'settings.json'
 const PROMPT_FILENAME = 'prompt_get_list_files_and_folders_related.md'
 const INSTRUCTIONS_FILENAME = 'instructions.md'
+const PLAN_REVIEW_FILENAME = 'plan_review.md'
 
 const DEFAULT_INSTRUCTIONS_CONTENT = `# Project Instructions for LLMs
 
@@ -116,6 +117,7 @@ export class IgnoreRules {
     this._compileRules()
     await this.ensurePromptFileExists()
     await this.ensureInstructionsFileExists()
+    await this.ensurePlanReviewFileExists()
   }
 
   // ==================== Private: I/O ====================
@@ -607,6 +609,34 @@ export class IgnoreRules {
     } catch {
       return null
     }
+  }
+
+  // ==================== Plan Review File Manager ====================
+
+  private getPlanReviewFilePath(): string {
+    return path.join(this.codebaseDir, PLAN_REVIEW_FILENAME)
+  }
+
+  async ensurePlanReviewFileExists(): Promise<void> {
+    const fp = this.getPlanReviewFilePath()
+    try {
+      await fs.access(fp)
+    } catch {
+      await fs.writeFile(fp, '', 'utf-8')
+    }
+  }
+
+  async readPlanReviewFile(): Promise<string> {
+    try {
+      return await fs.readFile(this.getPlanReviewFilePath(), 'utf-8')
+    } catch {
+      return ''
+    }
+  }
+
+  async writePlanReviewFile(content: string): Promise<void> {
+    await fs.mkdir(this.codebaseDir, { recursive: true })
+    await fs.writeFile(this.getPlanReviewFilePath(), content, 'utf-8')
   }
 
   // ==================== Utility ====================

@@ -3,60 +3,37 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent,
   type ReactElement
 } from 'react'
-import { Copy, EyeOff, FileText, Link2, Loader2, RefreshCw, X, Focus } from 'lucide-react'
+import { Copy, FileText, RefreshCw, Focus } from 'lucide-react'
+import MatchedFilesPreview from './components/MatchedFilesPreview'
 import PatternEditor from './components/PatternEditor'
-import { formatTokenCount } from './utils/formatTokenCount'
+import type { AttentionFileEntry } from './types'
 
-const PREVIEW_LIMIT = 100
 const ATTENTION_DEBOUNCE_MS = 300
-
-interface PreviewFile {
-  absPath: string
-  relPath: string
-  tokens?: number
-  isRelated?: boolean
-  importedBy?: string
-}
-
-function splitRelPath(relPath: string): { fileName: string; dirPath: string } {
-  const normalized = relPath.replace(/\\/g, '/')
-  const parts = normalized.split('/')
-  const fileName = parts.pop() || normalized
-  const dirPath = parts.length > 0 ? parts.join('/') : '.'
-  return { fileName, dirPath }
-}
 
 interface AttentionSidebarProps {
   projectPath: string | null
   attentionPatterns: string[]
-  ignorePatterns: string[]
   availablePaths: string[]
   onPatternsChange: (patterns: string[]) => void
-  onAddIgnorePattern: (pattern: string) => void | Promise<void>
-  onRemoveIgnorePattern: (pattern: string) => void | Promise<void>
   disabled?: boolean
 }
 
 export default function AttentionSidebar({
   projectPath,
   attentionPatterns,
-  ignorePatterns,
   availablePaths,
   onPatternsChange,
-  onAddIgnorePattern,
-  onRemoveIgnorePattern,
   disabled = false
 }: AttentionSidebarProps): ReactElement {
   const [textareaValue, setTextareaValue] = useState('')
-  const [previewFiles, setPreviewFiles] = useState<PreviewFile[]>([])
+  const [previewFiles, setPreviewFiles] = useState<AttentionFileEntry[]>([])
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
-  const [ignoreInput, setIgnoreInput] = useState('')
+
   const [isCopying, setIsCopying] = useState(false)
-  const [isOpenModifierDown, setIsOpenModifierDown] = useState(false)
+  const [isCopyingFiles, setIsCopyingFiles] = useState(false)
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const previewRequestRef = useRef(0)
@@ -145,22 +122,6 @@ export default function AttentionSidebar({
   }, [patterns, disabled])
 
   useEffect(() => {
-    const updateModifierState = (event: KeyboardEvent): void => {
-      setIsOpenModifierDown(event.ctrlKey || event.metaKey)
-    }
-    const resetModifierState = (): void => setIsOpenModifierDown(false)
-
-    window.addEventListener('keydown', updateModifierState)
-    window.addEventListener('keyup', updateModifierState)
-    window.addEventListener('blur', resetModifierState)
-    return () => {
-      window.removeEventListener('keydown', updateModifierState)
-      window.removeEventListener('keyup', updateModifierState)
-      window.removeEventListener('blur', resetModifierState)
-    }
-  }, [])
-
-  useEffect(() => {
     if (disabled || !projectPath || !hasInitializedPatternsRef.current) return
 
     if (skipNextSaveRef.current) {
@@ -197,26 +158,18 @@ export default function AttentionSidebar({
     setTextareaValue(value)
   }
 
-  const handleIgnoreKeyDown = async (e: { key: string }): Promise<void> => {
-    if (e.key !== 'Enter') return
-    const pattern = ignoreInput.trim()
-    if (!pattern || disabled) return
-    await onAddIgnorePattern(pattern)
-    setIgnoreInput('')
-  }
-
-  const handlePreviewFileClick = async (e: MouseEvent<HTMLDivElement>, file: PreviewFile): Promise<void> => {
-    if (!e.ctrlKey && !e.metaKey) return
-    e.preventDefault()
-    const result = await window.api.open_file(file.absPath)
-    if (result.error) {
-      setPreviewError(result.error)
+  const handleCopyFiles = async (): Promise<void> => {
+    if (previewFiles.length === 0) return
+    setIsCopyingFiles(true)
+    try {
+      const payload = previewFiles.map((f) => ({ absPath: f.absPath, relPath: f.relPath }))
+      await window.api.copy_combined_files(payload)
+    } catch (err) {
+      console.error('Copy failed', err)
+    } finally {
+      setTimeout(() => setIsCopyingFiles(false), 1000)
     }
   }
-
-  const totalTokens = previewFiles.reduce((sum, f) => sum + (f.tokens ?? 0), 0)
-  const relatedCount = previewFiles.filter((file) => file.isRelated).length
-  const matchedCount = previewFiles.length - relatedCount
 
   return (
     <aside className="flex h-full flex-col overflow-hidden border-r border-borderDark/20 bg-white">
@@ -267,126 +220,15 @@ export default function AttentionSidebar({
       </section>
 
       {/* Section 3: Preview */}
-      <section className="flex min-h-0 flex-1 flex-col bg-gray-50/60">
-        <div className="shrink-0 border-b border-borderDark/20 bg-gray-100/60 px-4 py-2 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-textMuted">
-            Matched Files
-          </span>
-          {patterns.length > 0 && (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-              Matched: {matchedCount}
-              {relatedCount > 0 ? ` (+${relatedCount} Related)` : ''} | Tokens: {formatTokenCount(totalTokens)}
-            </span>
-          )}
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {disabled ? (
-            <div className="px-4 py-4 text-[12px] text-textMuted">Open a project to preview.</div>
-          ) : patterns.length === 0 ? (
-            <div className="px-4 py-4 text-[12px] text-textMuted">Enter patterns to see matching files.</div>
-          ) : isLoadingPreview ? (
-            <div className="flex items-center gap-2 px-4 py-3 text-[12px] text-textMuted">
-              <Loader2 size={14} className="animate-spin text-accent" />
-              Loading preview...
-            </div>
-          ) : previewError ? (
-            <div className="px-4 py-3 text-[12px] text-danger">{previewError}</div>
-          ) : previewFiles.length === 0 ? (
-            <div className="px-4 py-3 text-[12px] text-textMuted">No files match these patterns.</div>
-          ) : (
-            <>
-              {previewFiles.map((file) => {
-                const { fileName, dirPath } = splitRelPath(file.relPath)
-                const isRelated = Boolean(file.isRelated)
-                const Icon = isRelated ? Link2 : FileText
-                return (
-                  <div
-                    key={file.absPath}
-                    onClick={(e) => handlePreviewFileClick(e, file)}
-                    className={[
-                      'border-b border-gray-100 py-1.5 transition-colors hover:bg-blue-50/70',
-                      isRelated ? 'pl-7 pr-3' : 'px-3',
-                      isOpenModifierDown ? 'cursor-pointer' : ''
-                    ].filter(Boolean).join(' ')}
-                    title={isOpenModifierDown ? `Open ${file.relPath}` : file.relPath}
-                  >
-                    <div className="flex items-center justify-between min-w-0">
-                      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-semibold text-gray-800">
-                        <Icon size={14} className={`shrink-0 ${isRelated ? 'text-slate-400' : 'text-blue-500'}`} />
-                        <span className={`truncate ${isOpenModifierDown ? 'underline decoration-dotted underline-offset-2' : ''}`}>
-                          {fileName}
-                        </span>
-                        {isRelated && (
-                          <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-                            Related
-                          </span>
-                        )}
-                      </div>
-                      <span className="ml-2 shrink-0 rounded-full bg-slate-200/70 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
-                        {formatTokenCount(file.tokens || 0)}
-                      </span>
-                    </div>
-                    <div className="truncate pl-5 text-[11px] text-gray-500">{dirPath}</div>
-                    {isRelated && file.importedBy && (
-                      <div className="truncate pl-5 text-[10px] text-slate-400">
-                        Imported by: {file.importedBy}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              {previewFiles.length >= PREVIEW_LIMIT && (
-                <div className="px-4 py-2 text-[11px] text-textMuted">
-                  Showing first {PREVIEW_LIMIT} matches.
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* Section 4: Global Ignore */}
-      <section className="shrink-0 border-t border-borderDark/20 px-4 py-3 bg-white">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-textMuted">
-          <EyeOff size={14} />
-          Global Ignore
-        </div>
-        <input
-          type="text"
-          value={ignoreInput}
-          onChange={(e) => setIgnoreInput(e.target.value)}
-          onKeyDown={(e) => handleIgnoreKeyDown(e)}
-          disabled={disabled}
-          placeholder={disabled ? 'Open a project to ignore' : 'e.g. *.log, temp/, draft_*.md'}
-          className="w-full rounded-sm border border-borderDark bg-white px-2 py-1.5 text-[13px] transition focus:border-danger focus:outline-none disabled:opacity-50"
-        />
-
-        <div className="mt-2">
-          {ignorePatterns.length > 0 ? (
-            <div className="flex max-h-20 flex-wrap gap-1.5 overflow-y-auto pr-1">
-              {ignorePatterns.map((pattern) => (
-                <span
-                  key={pattern}
-                  className="inline-flex max-w-full items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[12px] font-medium text-red-800"
-                >
-                  <span className="min-w-0 truncate">{pattern}</span>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveIgnorePattern(pattern)}
-                    disabled={disabled}
-                    className="shrink-0 rounded-full p-0.5 transition-colors hover:bg-red-200 disabled:opacity-50"
-                  >
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div className="text-[12px] text-textMuted">No custom ignore patterns.</div>
-          )}
-        </div>
-      </section>
+      <MatchedFilesPreview
+        files={previewFiles}
+        inputCount={patterns.length}
+        disabled={disabled}
+        isLoading={isLoadingPreview}
+        error={previewError}
+        onCopyAll={handleCopyFiles}
+        isCopyingAll={isCopyingFiles}
+      />
     </aside>
   )
 }

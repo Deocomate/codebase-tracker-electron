@@ -27,14 +27,30 @@ body {
 }
 
 .gutter {
-  background-color: #d1d5db;
+  background-color: transparent !important;
   background-repeat: no-repeat;
   background-position: 50%;
+  position: relative;
   cursor: col-resize;
+  z-index: 10;
 }
 
-.gutter:hover {
-  background-color: #4a90d9;
+.gutter::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background-color: var(--color-borderDark);
+  transition: all 0.2s ease;
+}
+
+.gutter:hover::after,
+.gutter:active::after {
+  background-color: var(--color-accent);
+  width: 3px;
 }
 
 /* Scrollbar styles */

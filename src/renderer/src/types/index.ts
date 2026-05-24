@@ -9,6 +9,8 @@ export type {
   IgnorePatternsResponse,
   IgnorePreviewResponse,
   LoadProjectResponse,
+  PlanPreviewResponse,
+  PlanTextResponse,
   SettingsResponse,
   SimpleResponse,
   TreeMutationResponse as ToggleNodeResponse

@@ -68,8 +68,15 @@ export class FileCombiner {
       await fs.promises.mkdir(this.outputDir, { recursive: true })
       const existingItems = await fs.promises.readdir(this.outputDir, { withFileTypes: true })
 
+      const preservedFiles = new Set([
+        'settings.json',
+        'instructions.md',
+        'prompt_get_list_files_and_folders_related.md',
+        'plan_review.md'
+      ])
+
       for (const item of existingItems) {
-        if (item.name === 'settings.json') continue
+        if (preservedFiles.has(item.name)) continue
 
         const fullPath = path.join(this.outputDir, item.name)
         if (item.isDirectory()) {

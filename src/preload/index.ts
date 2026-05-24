@@ -7,6 +7,8 @@ import type {
   IgnorePatternsResponse,
   IgnorePreviewResponse,
   LoadProjectResponse,
+  PlanPreviewResponse,
+  PlanTextResponse,
   PromptInstructionResponse,
   SaveAttentionPatternsResponse,
   SettingsResponse,
@@ -40,6 +42,9 @@ export interface IpcApi {
 
   // Attention Context
   preview_attention: (patterns: string[]) => Promise<AttentionPreviewResponse>
+  preview_plan: (text: string) => Promise<PlanPreviewResponse>
+  get_plan_text: () => Promise<PlanTextResponse>
+  save_plan_text: (text: string) => Promise<PlanTextResponse>
   get_prompt_instruction: () => Promise<PromptInstructionResponse>
   reset_prompt_instruction: () => Promise<PromptInstructionResponse>
   save_attention_patterns: (patterns: string[]) => Promise<SaveAttentionPatternsResponse>
@@ -55,7 +60,8 @@ export interface IpcApi {
     selectedFormats: string[],
     splitEnabled: boolean,
     splitCount: number,
-    attentionPatterns?: string[]
+    attentionPatterns?: string[],
+    planText?: string
   ) => Promise<GenerationStartResponse>
   cancel_generation: () => Promise<SimpleResponse>
 
@@ -66,6 +72,7 @@ export interface IpcApi {
   open_settings_file: () => Promise<SimpleResponse>
   open_instructions_file: () => Promise<SimpleResponse>
   auto_copy_files: (fileNames: string[]) => Promise<SimpleResponse>
+  copy_combined_files: (files: { absPath: string; relPath: string }[]) => Promise<SimpleResponse>
   clear_output: () => Promise<SimpleResponse>
 
   // Utility
@@ -106,6 +113,9 @@ const api: IpcApi = {
 
   // ---- Attention Context ----
   preview_attention: (patterns) => ipcRenderer.invoke('attention:preview', patterns),
+  preview_plan: (text) => ipcRenderer.invoke('plan:preview', text),
+  get_plan_text: () => ipcRenderer.invoke('plan:getText'),
+  save_plan_text: (text) => ipcRenderer.invoke('plan:saveText', text),
   get_prompt_instruction: () => ipcRenderer.invoke('prompt:getInstruction'),
   reset_prompt_instruction: () => ipcRenderer.invoke('prompt:resetInstruction'),
   save_attention_patterns: (patterns) => ipcRenderer.invoke('attention:savePatterns', patterns),
@@ -118,12 +128,13 @@ const api: IpcApi = {
     ipcRenderer.invoke('ignore:previewPattern', { pattern, maxResults }),
 
   // ---- Generation ----
-  start_generation: (selectedFormats, splitEnabled, splitCount, attentionPatterns) =>
+  start_generation: (selectedFormats, splitEnabled, splitCount, attentionPatterns, planText) =>
     ipcRenderer.invoke('generate:start', {
       selectedFormats,
       splitEnabled,
       splitCount,
-      attentionPatterns
+      attentionPatterns,
+      planText
     }),
   cancel_generation: () => ipcRenderer.invoke('generate:cancel'),
 
@@ -134,6 +145,7 @@ const api: IpcApi = {
   open_settings_file: () => ipcRenderer.invoke('file:openSettingsFile'),
   open_instructions_file: () => ipcRenderer.invoke('file:openInstructionsFile'),
   auto_copy_files: (fileNames) => ipcRenderer.invoke('file:autoCopy', fileNames),
+  copy_combined_files: (files) => ipcRenderer.invoke('clipboard:copyCombinedFiles', files),
   clear_output: () => ipcRenderer.invoke('file:clearOutput'),
 
   // ---- Utility ----

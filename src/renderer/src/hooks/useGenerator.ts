@@ -30,7 +30,8 @@ export interface UseGeneratorReturn {
 export function useGenerator(
   projectPath: string,
   settings: GeneratorSettingsSnapshot,
-  attentionPatterns: string[]
+  attentionPatterns: string[],
+  planText = ''
 ): UseGeneratorReturn {
   const [isGenerating, setIsGenerating] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -82,9 +83,10 @@ export function useGenerator(
       selectedFromFormats(settings.formats),
       settings.splitEnabled,
       settings.splitCount,
-      attentionPatterns
+      attentionPatterns,
+      planText
     )
-  }, [attentionPatterns, projectPath, settings.formats, settings.splitCount, settings.splitEnabled])
+  }, [attentionPatterns, planText, projectPath, settings.formats, settings.splitCount, settings.splitEnabled])
 
   const cancelGeneration = useCallback(async (): Promise<void> => {
     await window.api.cancel_generation()

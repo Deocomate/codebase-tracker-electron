@@ -1,6 +1,7 @@
-import { ipcMain, dialog, shell, Menu, BrowserWindow } from 'electron'
+import { ipcMain, dialog, shell, clipboard, Menu, BrowserWindow } from 'electron'
 import type { Rectangle } from 'electron'
 import fs from 'fs/promises'
+import { readTextFile } from './core/fileUtils'
 import { copyFilesToClipboard } from './clipboard'
 import { WorkerManager } from './WorkerManager'
 import type { WorkerAction } from './worker/protocol'
@@ -12,10 +13,10 @@ interface WindowState {
 }
 
 const windowStates = new Map<number, WindowState>()
-const MINI_CONTENT_WIDTH = 340
-const MINI_CONTENT_HEIGHT = 180
-const MINI_MIN_CONTENT_WIDTH = 320
-const MINI_MIN_CONTENT_HEIGHT = 170
+const MINI_CONTENT_WIDTH = 320
+const MINI_CONTENT_HEIGHT = 160
+const MINI_MIN_CONTENT_WIDTH = 300
+const MINI_MIN_CONTENT_HEIGHT = 150
 
 export function getWindowState(event: Electron.IpcMainInvokeEvent): WindowState {
   const id = event.sender.id
@@ -292,6 +293,36 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle('plan:preview', async (event, text: string) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'PREVIEW_PLAN', { text }) as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { files: [], patterns: [], error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('plan:getText', async (event) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'READ_PLAN_TEXT') as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { content: '', error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('plan:saveText', async (event, text: string) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'SAVE_PLAN_TEXT', { text }) as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { content: '', error: getErrorMessage(err) }
+    }
+  })
+
   ipcMain.handle('ignore:getCustomPatterns', async (event) => {
     const state = getWindowState(event)
     try {
@@ -335,7 +366,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('generate:start', async (event, args: { selectedFormats: string[]; splitEnabled: boolean; splitCount: number; attentionPatterns?: string[] }) => {
+  ipcMain.handle('generate:start', async (event, args: { selectedFormats: string[]; splitEnabled: boolean; splitCount: number; attentionPatterns?: string[]; planText?: string }) => {
     const state = getWindowState(event)
     if (!state.workerManager || !state.workerManager.isRunning) {
       return { error: 'Project chưa được load' }
@@ -353,7 +384,8 @@ export function registerIpcHandlers(): void {
           selectedFormats: args.selectedFormats,
           splitEnabled: args.splitEnabled,
           splitCount: args.splitCount,
-          attentionPatterns: args.attentionPatterns
+          attentionPatterns: args.attentionPatterns,
+          planText: args.planText
         }, progressCallback) as Record<string, unknown>
 
         const success = Boolean(result?.success)
@@ -476,4 +508,25 @@ export function registerIpcHandlers(): void {
     console.log(`Renderer -> Main: ${message}`)
     return 'Kết nối thành công từ Electron (Main Process)!'
   })
+
+  // ---- Copy combined file contents to clipboard ----
+  ipcMain.handle(
+    'clipboard:copyCombinedFiles',
+    async (_event, files: { absPath: string; relPath: string }[]) => {
+      if (!files || files.length === 0) {
+        return { error: 'Không có file nào để copy.' }
+      }
+      try {
+        let combinedContent = ''
+        for (const file of files) {
+          const text = await readTextFile(file.absPath)
+          combinedContent += `// ${file.relPath}\n${text}\n\n`
+        }
+        clipboard.writeText(combinedContent.trimEnd())
+        return { status: 'success', message: `Đã copy nội dung ${files.length} file.` }
+      } catch (err: unknown) {
+        return { error: getErrorMessage(err) }
+      }
+    }
+  )
 }

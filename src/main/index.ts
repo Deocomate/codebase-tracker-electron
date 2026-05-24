@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers, cleanupWindowState } from './ipcHandlers'
@@ -7,8 +7,6 @@ import { registerIpcHandlers, cleanupWindowState } from './ipcHandlers'
 import icon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
-let tray: Tray | null = null
-let isQuitting = false
 
 // Bật cấu hình Wayland tự động cho Linux (tránh XWayland gây mờ UI)
 if (process.platform === 'linux') {
@@ -18,45 +16,6 @@ if (process.platform === 'linux') {
 
 // THÊM DÒNG NÀY ĐỂ TẮT GPU CACHE / HARDWARE ACCELERATION
 app.disableHardwareAcceleration()
-
-function showMainWindow(): void {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore()
-  }
-  mainWindow.show()
-  mainWindow.focus()
-}
-
-function createTray(): void {
-  const trayIcon = nativeImage.createFromPath(icon).resize({ width: 16, height: 16 })
-  tray = new Tray(trayIcon)
-
-  const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show App', click: showMainWindow },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        isQuitting = true
-        tray?.destroy()
-        tray = null
-        app.quit()
-      }
-    }
-  ])
-
-  tray.setToolTip('Codebase Tracker')
-  tray.setContextMenu(contextMenu)
-  tray.on('click', () => {
-    if (!mainWindow) return
-    if (mainWindow.isVisible()) {
-      mainWindow.hide()
-      return
-    }
-    showMainWindow()
-  })
-}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -87,13 +46,6 @@ function createWindow(): void {
   // Lấy sẵn ID lưu vào một biến số nguyên để dành
   const windowId = mainWindow.webContents.id
 
-  mainWindow.on('close', (event) => {
-    if (!isQuitting && process.platform === 'win32') {
-      event.preventDefault()
-      mainWindow?.hide()
-    }
-  })
-
   // DỌN DẸP STATE KHI WINDOW ĐÓNG
   mainWindow.on('closed', () => {
     cleanupWindowState(windowId) // Dùng biến đã lưu, không chọc vào mainWindow nữa
@@ -118,23 +70,12 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   createWindow()
 
-  if (process.platform === 'win32') {
-    createTray()
-  }
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
+// Đảm bảo app tắt hoàn toàn trên mọi hệ điều hành khi đóng tất cả cửa sổ
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin' && process.platform !== 'win32') {
-    // Ép tắt ngay lập tức, bỏ qua mọi tiến trình I/O đang treo
-    app.exit(0)
-  }
-})
-
-// Đề phòng trường hợp người dùng MacOS bấm Cmd+Q
-app.on('before-quit', () => {
-  isQuitting = true
+  app.quit()
 })

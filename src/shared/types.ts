@@ -5,6 +5,9 @@ export type WorkerAction =
   | 'UPDATE_SELECTION'
   | 'UPDATE_PRIORITY'
   | 'ATTENTION_PREVIEW'
+  | 'PREVIEW_PLAN'
+  | 'READ_PLAN_TEXT'
+  | 'SAVE_PLAN_TEXT'
   | 'READ_PROMPT_FILE'
   | 'RESET_PROMPT_FILE'
   | 'SAVE_ATTENTION_PATTERNS'
@@ -89,6 +92,17 @@ export interface SettingsResponse {
 
 export interface AttentionPreviewResponse {
   files: AttentionFileEntry[]
+  error?: string
+}
+
+export interface PlanPreviewResponse {
+  files: AttentionFileEntry[]
+  patterns: string[]
+  error?: string
+}
+
+export interface PlanTextResponse {
+  content: string
   error?: string
 }
 

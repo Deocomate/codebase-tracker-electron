@@ -32,7 +32,7 @@ export default function ExplorerSidebar({
   onAddIgnorePattern
 }: ExplorerSidebarProps): ReactElement {
   return (
-    <aside className="h-full bg-bgPanel flex flex-col overflow-hidden border-r border-borderDark/20">
+    <aside className="relative h-full w-full bg-bgPanel flex flex-col overflow-hidden border-l border-borderDark/20">
       <div className="flex border-b border-borderDark/20 bg-white shrink-0">
         <button
           className={`flex-1 py-2.5 text-[13px] font-semibold flex justify-center items-center gap-1.5 transition-colors ${

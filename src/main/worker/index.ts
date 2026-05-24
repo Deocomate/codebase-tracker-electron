@@ -11,6 +11,8 @@
 import { IgnoreRules } from '../core/ignoreRules'
 import { ProjectProcessor } from '../core/processor'
 import { collectRelatedDependencies } from '../core/dependencyParser'
+import { isTextFile } from '../core/fileUtils'
+import { extractPathsFromMarkdown } from '../core/planParser'
 import type { WorkerRequest, WorkerResponse, TreeNode, AttentionFileEntry } from './protocol'
 import fs from 'fs/promises'
 import path from 'path'
@@ -214,11 +216,20 @@ async function handleAttentionPreview(id: string, payload: Record<string, unknow
 
   if (patterns.length === 0) return sendSuccess(id, { files: [] })
 
+  const files = await previewAttentionPatterns(patterns)
+  sendSuccess(id, { files })
+}
+
+async function previewAttentionPatterns(patterns: string[], textOnly = false): Promise<AttentionFileEntry[]> {
+  if (!rules || !projectPath) return []
+
+  const currentRules = rules
+  const currentProjectPath = projectPath
   const attnIg = (await import('ignore')).default().add(patterns)
   const results: AttentionFileEntry[] = []
 
   const walk = async (relDir: string): Promise<void> => {
-    const absDir = relDir ? path.join(projectPath!, relDir) : projectPath!
+    const absDir = relDir ? path.join(currentProjectPath, relDir) : currentProjectPath
     let entries
     try {
       entries = await fs.readdir(absDir, { withFileTypes: true })
@@ -228,18 +239,19 @@ async function handleAttentionPreview(id: string, payload: Record<string, unknow
     for (const entry of entries) {
       if (entry.name === '_codebase') continue
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
-      if (rules!.isGloballyIgnoredByRelPath(relPath, entry.isDirectory())) continue
+      if (currentRules.isGloballyIgnoredByRelPath(relPath, entry.isDirectory())) continue
       if (entry.isDirectory()) {
         await walk(relPath)
         continue
       }
       const checkPath = relPath.replace(/\\/g, '/')
       if (attnIg.ignores(checkPath)) {
+        if (textOnly && !isTextFile(relPath)) continue
         try {
-          const stat = await fs.stat(path.join(projectPath!, relPath))
-          results.push({ absPath: path.join(projectPath!, relPath), relPath, tokens: Math.ceil(stat.size / 4) })
+          const stat = await fs.stat(path.join(currentProjectPath, relPath))
+          results.push({ absPath: path.join(currentProjectPath, relPath), relPath, tokens: Math.ceil(stat.size / 4) })
         } catch {
-          results.push({ absPath: path.join(projectPath!, relPath), relPath })
+          results.push({ absPath: path.join(currentProjectPath, relPath), relPath })
         }
       }
     }
@@ -247,13 +259,41 @@ async function handleAttentionPreview(id: string, payload: Record<string, unknow
 
   await walk('')
   const existingRelPaths = new Set(results.map((file) => file.relPath))
-  const relatedFiles = await collectRelatedDependencies(projectPath, results, {
-    ignoreRules: rules,
+  const relatedFiles = await collectRelatedDependencies(currentProjectPath, results, {
+    ignoreRules: currentRules,
     maxSourceFiles: 20,
     existingRelPaths
   })
   results.push(...relatedFiles)
-  sendSuccess(id, { files: results })
+  return results
+}
+
+async function handlePreviewPlan(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules || !projectPath) return sendSuccess(id, { files: [], patterns: [] })
+
+  const text = typeof payload.text === 'string' ? payload.text : ''
+  const rawPatterns = extractPathsFromMarkdown(text)
+
+  // Filter out patterns that are globally ignored
+  const patterns = rawPatterns.filter(p => !rules!.isGloballyIgnoredByRelPath(p, false))
+
+  if (patterns.length === 0) return sendSuccess(id, { files: [], patterns })
+
+  const files = await previewAttentionPatterns(patterns, true)
+  sendSuccess(id, { files, patterns })
+}
+
+async function handleReadPlanText(id: string): Promise<void> {
+  if (!rules) return sendError(id, 'Project chÆ°a Ä‘Æ°á»£c load')
+  const content = await rules.readPlanReviewFile()
+  sendSuccess(id, { content })
+}
+
+async function handleSavePlanText(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules) return sendError(id, 'Project chÆ°a Ä‘Æ°á»£c load')
+  const content = typeof payload.text === 'string' ? payload.text : ''
+  await rules.writePlanReviewFile(content)
+  sendSuccess(id, { content })
 }
 
 async function handleReadPromptFile(id: string): Promise<void> {
@@ -357,6 +397,11 @@ async function handleGenerate(id: string, payload: Record<string, unknown>): Pro
   const splitEnabled = payload.splitEnabled as boolean
   const splitCount = payload.splitCount as number
   const attentionPatterns = payload.attentionPatterns as string[] | undefined
+  const planText = typeof payload.planText === 'string' ? payload.planText : ''
+  const planPatterns = extractPathsFromMarkdown(planText)
+  const effectiveAttentionPatterns = Array.from(
+    new Set([...(attentionPatterns ?? []), ...planPatterns].map((p) => p.trim()).filter(Boolean))
+  )
   const actualSplitCount = splitEnabled ? splitCount : 0
 
   let processor: ProjectProcessor
@@ -378,7 +423,7 @@ async function handleGenerate(id: string, payload: Record<string, unknown>): Pro
       cancelRef,
       selectedFormats,
       actualSplitCount,
-      attentionPatterns
+      effectiveAttentionPatterns
     )
 
     sendSuccess(id, { success, message, stats })
@@ -425,6 +470,12 @@ async function dispatch(request: WorkerRequest): Promise<void> {
         return handleUpdatePriority(id, p)
       case 'ATTENTION_PREVIEW':
         return handleAttentionPreview(id, p)
+      case 'PREVIEW_PLAN':
+        return handlePreviewPlan(id, p)
+      case 'READ_PLAN_TEXT':
+        return handleReadPlanText(id)
+      case 'SAVE_PLAN_TEXT':
+        return handleSavePlanText(id, p)
       case 'READ_PROMPT_FILE':
         return handleReadPromptFile(id)
       case 'RESET_PROMPT_FILE':
