@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type DragEvent, type ReactElement } from 'react'
 import Split from 'react-split'
-import { CheckCircle } from 'lucide-react'
+import { CheckCircle, Play, XCircle } from 'lucide-react'
 import AttentionSidebar from './AttentionSidebar'
 import ActivityBar, { type ActivityView } from './components/layout/ActivityBar'
 import ContextTreemap from './components/ui/ContextTreemap'
@@ -12,6 +12,7 @@ import ProjectControl from './features/project/ProjectControl'
 import ResultSummary from './features/project/ResultSummary'
 import ExplorerSidebar from './features/sidebar/ExplorerSidebar'
 import WorkspaceSettings from './features/settings/WorkspaceSettings'
+import GlobalTrackPanel from './features/track/GlobalTrackPanel'
 import MiniWidget from './features/window/MiniWidget'
 import { useGenerator } from './hooks/useGenerator'
 import { usePlanReview } from './hooks/usePlanReview'
@@ -28,7 +29,12 @@ function App(): ReactElement {
   const settings = useSettings(project.projectPath)
   const planReviewDisabled = !project.projectPath || project.treeLoadState !== 'ready'
   const planReview = usePlanReview(project.projectPath, planReviewDisabled)
-  const generator = useGenerator(project.projectPath, settings, project.attentionPatterns, planReview.planText)
+  const generator = useGenerator(
+    project.projectPath,
+    settings,
+    project.attentionPatterns,
+    planReview.planText
+  )
   const [activeView, setActiveView] = useState<ActivityView>('attention')
   const [isPinned, setIsPinned] = useState(false)
   const [isPinning, setIsPinning] = useState(false)
@@ -112,6 +118,24 @@ function App(): ReactElement {
     [generator, project]
   )
 
+  const handleAddTrackPattern = useCallback(
+    async (pattern: string): Promise<void> => {
+      if (generator.isGenerating) return
+      const error = await project.addTrackPattern(pattern)
+      if (error) generator.appendLog(`Lá»—i: ${error}`)
+    },
+    [generator, project]
+  )
+
+  const handleRemoveTrackPattern = useCallback(
+    async (pattern: string): Promise<void> => {
+      if (generator.isGenerating) return
+      const error = await project.removeTrackPattern(pattern)
+      if (error) generator.appendLog(`Lá»—i: ${error}`)
+    },
+    [generator, project]
+  )
+
   const handleAttentionPatternsChange = useCallback(
     async (patterns: string[]): Promise<void> => {
       if (generator.isGenerating) return
@@ -156,9 +180,9 @@ function App(): ReactElement {
       onDrop={handleDrop}
     >
       {generator.toast && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-green-100 text-green-800 px-4 py-2 rounded shadow-md border border-green-200 flex items-center gap-2">
+        <div className="absolute bottom-5 right-5 z-50 flex max-w-[360px] items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-emerald-800 shadow-lg shadow-slate-900/10">
           <CheckCircle size={16} />
-          <span className="text-sm font-medium">{generator.toast}</span>
+          <span className="text-[13px] font-medium leading-snug">{generator.toast}</span>
         </div>
       )}
 
@@ -186,19 +210,23 @@ function App(): ReactElement {
               sizes={SPLIT_SIZES}
               minSize={SPLIT_MIN_SIZES}
               maxSize={SPLIT_MAX_SIZES}
-              gutterSize={8}
+              gutterSize={1}
               className="split min-w-0 flex-1"
             >
               {/* Left pane: both panels always mounted, toggled via CSS */}
               <div className="h-full w-full relative">
-                <div className={`absolute inset-0 ${activeView === 'attention' ? 'block' : 'hidden'}`}>
+                <div
+                  className={`absolute inset-0 ${activeView === 'attention' ? 'block' : 'hidden'}`}
+                >
                   <AttentionSidebar
                     projectPath={project.projectPath}
                     attentionPatterns={project.attentionPatterns}
                     availablePaths={project.availablePaths}
                     onPatternsChange={handleAttentionPatternsChange}
                     disabled={
-                      generator.isGenerating || !project.projectPath || project.treeLoadState !== 'ready'
+                      generator.isGenerating ||
+                      !project.projectPath ||
+                      project.treeLoadState !== 'ready'
                     }
                   />
                 </div>
@@ -211,82 +239,144 @@ function App(): ReactElement {
                     previewError={planReview.previewError}
                     onPlanTextChange={planReview.setPlanText}
                     disabled={
-                      generator.isGenerating || !project.projectPath || project.treeLoadState !== 'ready'
+                      generator.isGenerating ||
+                      !project.projectPath ||
+                      project.treeLoadState !== 'ready'
                     }
                   />
                 </div>
                 <div className={`absolute inset-0 ${activeView === 'ignore' ? 'block' : 'hidden'}`}>
                   <GlobalIgnorePanel
                     ignorePatterns={project.ignorePatterns}
+                    availablePaths={project.availablePaths}
                     onAddIgnorePattern={handleAddIgnorePattern}
                     onRemoveIgnorePattern={handleRemoveIgnorePattern}
                     disabled={
-                      generator.isGenerating || !project.projectPath || project.treeLoadState !== 'ready'
+                      generator.isGenerating ||
+                      !project.projectPath ||
+                      project.treeLoadState !== 'ready'
+                    }
+                  />
+                </div>
+                <div className={`absolute inset-0 ${activeView === 'track' ? 'block' : 'hidden'}`}>
+                  <GlobalTrackPanel
+                    trackPatterns={project.trackPatterns}
+                    availablePaths={project.availablePaths}
+                    onAddTrackPattern={handleAddTrackPattern}
+                    onRemoveTrackPattern={handleRemoveTrackPattern}
+                    disabled={
+                      generator.isGenerating ||
+                      !project.projectPath ||
+                      project.treeLoadState !== 'ready'
                     }
                   />
                 </div>
               </div>
 
               {/* Center pane */}
-              <main className="h-full bg-white overflow-y-auto px-8 py-8">
-                <div className="max-w-5xl mx-auto">
-                  <h1 className="text-2xl font-light text-textMain mb-8">Workspace Settings</h1>
+              <main className="flex h-full min-w-0 flex-col bg-bgPanel">
+                <header className="z-10 flex shrink-0 items-center justify-between gap-4 border-b border-borderDark/20 bg-white px-6 py-4 shadow-sm">
+                  <div className="min-w-0">
+                    <h1 className="text-lg font-semibold leading-none text-textMain">Workspace</h1>
+                    <p className="mt-1 truncate text-[12px] text-textMuted">
+                      {project.projectPath || 'No project opened'}
+                    </p>
+                  </div>
 
-                  <ProjectControl
-                    projectPathInput={project.projectPathInput}
-                    isGenerating={generator.isGenerating}
-                    onProjectPathInputChange={project.setProjectPathInput}
-                    onLoadProject={loadProjectAndSettings}
-                    onBrowse={handleBrowse}
-                  />
+                  <div className="flex shrink-0 items-center gap-4">
+                    {generator.isGenerating && (
+                      <div className="flex w-40 items-center gap-3">
+                        <span className="w-8 text-xs font-mono text-accent">
+                          {generator.progress}%
+                        </span>
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                          <div
+                            className="h-full bg-accent transition-all duration-300"
+                            style={{ width: `${generator.progress}%` }}
+                          />
+                        </div>
+                        <button
+                          onClick={() => void generator.cancelGeneration()}
+                          className="p-1 text-danger transition hover:text-red-700"
+                          title="Cancel generation"
+                        >
+                          <XCircle size={16} />
+                        </button>
+                      </div>
+                    )}
 
-                  <ContextTreemap
-                    treeData={project.filteredTreeData}
-                    projectPath={project.projectPath}
-                    isGenerating={generator.isGenerating}
-                    progress={generator.progress}
-                    onStart={generator.startGeneration}
-                    onCancel={generator.cancelGeneration}
-                  />
+                    <button
+                      onClick={() => void generator.startGeneration()}
+                      disabled={!project.projectPath || generator.isGenerating}
+                      className="flex items-center gap-2 whitespace-nowrap rounded-md bg-accent px-5 py-2 text-[13px] font-semibold text-white shadow-md shadow-accent/20 transition hover:bg-accentHover disabled:opacity-50"
+                    >
+                      {generator.isGenerating ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      ) : (
+                        <Play size={14} fill="currentColor" />
+                      )}
+                      {generator.isGenerating ? 'PROCESSING...' : 'SCAN & GENERATE'}
+                    </button>
+                  </div>
+                </header>
 
-                  <WorkspaceSettings
-                    projectPath={project.projectPath}
-                    formats={settings.formats}
-                    splitEnabled={settings.splitEnabled}
-                    splitCount={settings.splitCount}
-                    instructionsEnabled={settings.instructionsEnabled}
-                    onUpdateSettings={settings.updateSettings}
-                    onEditInstructions={generator.openInstructionsFile}
-                  />
-
-                  {generator.stats && (
-                    <ResultSummary
-                      stats={generator.stats}
-                      onOpenFolder={generator.openOutputFolder}
-                      onAutoCopy={generator.autoCopy}
-                      onOpenSettings={generator.openSettingsFile}
-                      onClearOutput={generator.clearOutput}
+                <div className="flex-1 overflow-y-auto px-6 py-6 scroll-smooth">
+                  <div className="mx-auto max-w-5xl space-y-6">
+                    <ProjectControl
+                      projectPathInput={project.projectPathInput}
+                      isGenerating={generator.isGenerating}
+                      onProjectPathInputChange={project.setProjectPathInput}
+                      onLoadProject={loadProjectAndSettings}
+                      onBrowse={handleBrowse}
                     />
-                  )}
 
-                  <ConsoleLog logs={generator.logs} />
+                    <ContextTreemap
+                      treeData={project.filteredTreeData}
+                      projectPath={project.projectPath}
+                      onToggleNode={project.toggleNode}
+                    />
+
+                    <WorkspaceSettings
+                      projectPath={project.projectPath}
+                      formats={settings.formats}
+                      splitEnabled={settings.splitEnabled}
+                      splitCount={settings.splitCount}
+                      instructionsEnabled={settings.instructionsEnabled}
+                      onUpdateSettings={settings.updateSettings}
+                      onEditInstructions={generator.openInstructionsFile}
+                    />
+
+                    {generator.stats && (
+                      <ResultSummary
+                        stats={generator.stats}
+                        onOpenFolder={generator.openOutputFolder}
+                        onAutoCopy={generator.autoCopy}
+                        onOpenSettings={generator.openSettingsFile}
+                        onClearOutput={generator.clearOutput}
+                      />
+                    )}
+
+                    <ConsoleLog logs={generator.logs} />
+                  </div>
                 </div>
               </main>
 
               {/* Right pane */}
-              <ExplorerSidebar
-                activeTab={project.activeTab}
-                projectPath={project.projectPath}
-                isGenerating={generator.isGenerating}
-                isReloading={project.isReloading}
-                treeData={project.filteredTreeData}
-                emptyMessage={project.treeEmptyMessage}
-                onActiveTabChange={project.setActiveTab}
-                onReload={handleReload}
-                onToggleNode={project.toggleNode}
-                onReorderTree={project.reorderTree}
-                onAddIgnorePattern={handleAddIgnorePattern}
-              />
+              <div className="h-full w-full min-w-0">
+                <ExplorerSidebar
+                  activeTab={project.activeTab}
+                  projectPath={project.projectPath}
+                  isGenerating={generator.isGenerating}
+                  isReloading={project.isReloading}
+                  treeData={project.filteredTreeData}
+                  emptyMessage={project.treeEmptyMessage}
+                  onActiveTabChange={project.setActiveTab}
+                  onReload={handleReload}
+                  onToggleNode={project.toggleNode}
+                  onReorderTree={project.reorderTree}
+                  onAddIgnorePattern={handleAddIgnorePattern}
+                />
+              </div>
             </Split>
           </div>
         </>

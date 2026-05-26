@@ -119,7 +119,9 @@ export class FileScanner {
           continue
         }
 
-        const hasDescendant = this.ignoreRules.hasDescendantRule(relPath, this.ignoreRules.included_paths)
+        const hasDescendant =
+          this.ignoreRules.hasDescendantRule(relPath, this.ignoreRules.included_paths) ||
+          this.ignoreRules.hasGlobalTrackDescendant(relPath)
         const isSelected = this.ignoreRules.isPathSelected(relPath)
         if (!isSelected && !hasDescendant) {
           ignoredItems.push({ absPath, relPath, reason: 'explicit_exclude' })
@@ -136,7 +138,8 @@ export class FileScanner {
 
         allFiles.push(relPath)
 
-        if (!this.ignoreRules.isPathSelected(relPath)) {
+        if (!this.ignoreRules.isGlobalTrackedByRelPath(relPath, false) &&
+          !this.ignoreRules.isPathSelected(relPath)) {
           ignoredItems.push({ absPath, relPath, reason: 'explicit_exclude' })
           continue
         }

@@ -157,7 +157,11 @@ export function registerIpcHandlers(): void {
         status: 'success',
         project_path: actualFsPath,
         tree: result.tree,
-        attention_patterns: Array.isArray(result.attention_patterns) ? result.attention_patterns : []
+        attention_patterns: Array.isArray(result.attention_patterns) ? result.attention_patterns : [],
+        global_track_patterns: Array.isArray(result.global_track_patterns)
+          ? result.global_track_patterns
+          : [],
+        suggestion_paths: Array.isArray(result.suggestion_paths) ? result.suggestion_paths : []
       }
     } catch (err: unknown) {
       // Clean up worker if it was started but INIT threw
@@ -363,6 +367,59 @@ export function registerIpcHandlers(): void {
       return result
     } catch (err: unknown) {
       return { files: [], error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('track:getPatterns', async (event) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'GET_TRACK_PATTERNS') as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { patterns: [], error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('track:addPattern', async (event, pattern: string) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'ADD_TRACK_PATTERN', { pattern }) as Record<string, unknown>
+      return { status: 'success', ...result }
+    } catch (err: unknown) {
+      return { error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('track:removePattern', async (event, pattern: string) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'REMOVE_TRACK_PATTERN', { pattern }) as Record<string, unknown>
+      return { status: 'success', ...result }
+    } catch (err: unknown) {
+      return { error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('track:previewPattern', async (event, args: { pattern: string; maxResults?: number }) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'PREVIEW_TRACK_PATTERN', {
+        pattern: args.pattern,
+        maxResults: args.maxResults
+      }) as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { files: [], error: getErrorMessage(err) }
+    }
+  })
+
+  ipcMain.handle('suggestions:getPaths', async (event) => {
+    const state = getWindowState(event)
+    try {
+      const result = await workerSend(state, 'GET_SUGGESTION_PATHS') as Record<string, unknown>
+      return result
+    } catch (err: unknown) {
+      return { paths: [], error: getErrorMessage(err) }
     }
   })
 

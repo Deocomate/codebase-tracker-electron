@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type ReactElement
 } from 'react'
+import { createPortal } from 'react-dom'
 import { Ban, FileText, Folder, Tags } from 'lucide-react'
 import { getGlobSuggestions } from '../utils/globAutocomplete'
 
@@ -150,9 +151,13 @@ export default function PatternEditor({
     marker.textContent = nextValue.slice(caret, caret + 1) || '.'
     mirror.appendChild(marker)
 
-    const maxLeft = Math.max(8, container.clientWidth - POPUP_WIDTH - 8)
-    const left = Math.min(Math.max(marker.offsetLeft - textarea.scrollLeft, 8), maxLeft)
-    const top = marker.offsetTop - textarea.scrollTop + 24
+    const containerRect = container.getBoundingClientRect()
+    const maxLeft = Math.max(8, window.innerWidth - POPUP_WIDTH - 8)
+    const left = Math.min(
+      Math.max(containerRect.left + marker.offsetLeft - textarea.scrollLeft, 8),
+      maxLeft
+    )
+    const top = containerRect.top + marker.offsetTop - textarea.scrollTop + 24
     setPopupPosition({ left, top })
   }, [])
 
@@ -251,38 +256,40 @@ export default function PatternEditor({
         className="pointer-events-none invisible absolute left-0 top-0 whitespace-pre-wrap break-words border border-transparent px-2 py-1.5 font-mono text-[13px] leading-relaxed"
       />
 
-      {showSuggestions && (
-        <div
-          className="absolute z-30 max-h-52 overflow-y-auto rounded-sm border border-borderDark bg-white py-1 shadow-lg"
-          style={{
-            left: popupPosition.left,
-            top: popupPosition.top,
-            width: POPUP_WIDTH
-          }}
-        >
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={suggestion}
-              type="button"
-              onMouseDown={(event) => {
-                event.preventDefault()
-                applySuggestion(suggestion)
-              }}
-              className={`flex w-full items-center gap-2 truncate px-2.5 py-1.5 text-left font-mono text-[12px] ${
-                index === activeSuggestionIndex
-                  ? 'bg-accent text-white'
-                  : 'text-textMain hover:bg-blue-50'
-              }`}
-              title={suggestion}
-            >
-              <SuggestionIcon suggestion={suggestion} />
-              <span className="min-w-0 truncate">
-                <HighlightedText text={suggestion} query={currentToken} />
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      {showSuggestions &&
+        createPortal(
+          <div
+            className="fixed z-[9999] max-h-52 overflow-y-auto rounded-sm border border-borderDark bg-white py-1 shadow-lg"
+            style={{
+              left: popupPosition.left,
+              top: popupPosition.top,
+              width: POPUP_WIDTH
+            }}
+          >
+            {suggestions.map((suggestion, index) => (
+              <button
+                key={suggestion}
+                type="button"
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  applySuggestion(suggestion)
+                }}
+                className={`flex w-full items-center gap-2 truncate px-2.5 py-1.5 text-left font-mono text-[12px] ${
+                  index === activeSuggestionIndex
+                    ? 'bg-accent text-white'
+                    : 'text-textMain hover:bg-blue-50'
+                }`}
+                title={suggestion}
+              >
+                <SuggestionIcon suggestion={suggestion} />
+                <span className="min-w-0 truncate">
+                  <HighlightedText text={suggestion} query={currentToken} />
+                </span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

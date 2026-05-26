@@ -20,12 +20,18 @@ export default function ResultSummary({
 }: ResultSummaryProps): ReactElement {
   return (
     <Card title="Results Summary">
-      <div className="bg-[#f8f9fa] border border-borderDark p-4">
+      <div>
         <div className="flex flex-col sm:flex-row justify-between mb-4">
           <ul className="text-[13px] text-textMain space-y-1">
-            <li>Source files: <strong>{stats.total_files_included}</strong></li>
-            <li>Total characters: <strong>{stats.total_chars?.toLocaleString()}</strong></li>
-            <li>Generated files: <strong>{stats.generated_files?.length}</strong></li>
+            <li>
+              Source files: <strong>{stats.total_files_included}</strong>
+            </li>
+            <li>
+              Total characters: <strong>{stats.total_chars?.toLocaleString()}</strong>
+            </li>
+            <li>
+              Generated files: <strong>{stats.generated_files?.length}</strong>
+            </li>
           </ul>
         </div>
         <div className="flex flex-wrap gap-2">

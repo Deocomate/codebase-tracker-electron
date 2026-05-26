@@ -13,6 +13,10 @@ import type {
   SaveAttentionPatternsResponse,
   SettingsResponse,
   SimpleResponse,
+  SuggestionPathsResponse,
+  TrackPatternMutationResponse,
+  TrackPatternsResponse,
+  TrackPreviewResponse,
   TreeMutationResponse,
   WindowPinResponse
 } from '../shared/types'
@@ -54,6 +58,11 @@ export interface IpcApi {
   remove_ignore_pattern: (pattern: string) => Promise<IgnorePatternMutationResponse>
   get_ignore_patterns: () => Promise<IgnorePatternsResponse>
   preview_ignore_pattern: (pattern: string, maxResults?: number) => Promise<IgnorePreviewResponse>
+  add_track_pattern: (pattern: string) => Promise<TrackPatternMutationResponse>
+  remove_track_pattern: (pattern: string) => Promise<TrackPatternMutationResponse>
+  get_track_patterns: () => Promise<TrackPatternsResponse>
+  preview_track_pattern: (pattern: string, maxResults?: number) => Promise<TrackPreviewResponse>
+  get_suggestion_paths: () => Promise<SuggestionPathsResponse>
 
   // Generation
   start_generation: (
@@ -126,6 +135,12 @@ const api: IpcApi = {
   get_ignore_patterns: () => ipcRenderer.invoke('ignore:getCustomPatterns'),
   preview_ignore_pattern: (pattern, maxResults = 50) =>
     ipcRenderer.invoke('ignore:previewPattern', { pattern, maxResults }),
+  add_track_pattern: (pattern) => ipcRenderer.invoke('track:addPattern', pattern),
+  remove_track_pattern: (pattern) => ipcRenderer.invoke('track:removePattern', pattern),
+  get_track_patterns: () => ipcRenderer.invoke('track:getPatterns'),
+  preview_track_pattern: (pattern, maxResults = 50) =>
+    ipcRenderer.invoke('track:previewPattern', { pattern, maxResults }),
+  get_suggestion_paths: () => ipcRenderer.invoke('suggestions:getPaths'),
 
   // ---- Generation ----
   start_generation: (selectedFormats, splitEnabled, splitCount, attentionPatterns, planText) =>

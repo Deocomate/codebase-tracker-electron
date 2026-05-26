@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { EyeOff, Plus, X } from 'lucide-react'
+import { Plus, Target, X } from 'lucide-react'
 import MatchedFilesPreview from '../../components/MatchedFilesPreview'
 import PatternEditor from '../../components/PatternEditor'
 import type { AttentionFileEntry } from '../../types'
@@ -7,11 +7,11 @@ import type { AttentionFileEntry } from '../../types'
 const PREVIEW_DEBOUNCE_MS = 300
 const PREVIEW_LIMIT = 50
 
-interface GlobalIgnorePanelProps {
-  ignorePatterns: string[]
+interface GlobalTrackPanelProps {
+  trackPatterns: string[]
   availablePaths: string[]
-  onAddIgnorePattern: (pattern: string) => void | Promise<void>
-  onRemoveIgnorePattern: (pattern: string) => void | Promise<void>
+  onAddTrackPattern: (pattern: string) => void | Promise<void>
+  onRemoveTrackPattern: (pattern: string) => void | Promise<void>
   disabled?: boolean
 }
 
@@ -22,21 +22,21 @@ function parsePatterns(value: string): string[] {
     .filter(Boolean)
 }
 
-export default function GlobalIgnorePanel({
-  ignorePatterns,
+export default function GlobalTrackPanel({
+  trackPatterns,
   availablePaths,
-  onAddIgnorePattern,
-  onRemoveIgnorePattern,
+  onAddTrackPattern,
+  onRemoveTrackPattern,
   disabled = false
-}: GlobalIgnorePanelProps): ReactElement {
-  const [ignoreInput, setIgnoreInput] = useState('')
+}: GlobalTrackPanelProps): ReactElement {
+  const [trackInput, setTrackInput] = useState('')
   const [previewFiles, setPreviewFiles] = useState<AttentionFileEntry[]>([])
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const previewRequestRef = useRef(0)
 
-  const inputPatterns = useMemo(() => parsePatterns(ignoreInput), [ignoreInput])
+  const inputPatterns = useMemo(() => parsePatterns(trackInput), [trackInput])
 
   useEffect(() => {
     if (disabled || inputPatterns.length === 0) {
@@ -68,7 +68,7 @@ export default function GlobalIgnorePanel({
 
         for (const pattern of inputPatterns) {
           if (merged.size >= PREVIEW_LIMIT) break
-          const { files, error } = await window.api.preview_ignore_pattern(
+          const { files, error } = await window.api.preview_track_pattern(
             pattern,
             PREVIEW_LIMIT - merged.size
           )
@@ -104,58 +104,58 @@ export default function GlobalIgnorePanel({
     if (disabled || inputPatterns.length === 0) return
 
     for (const pattern of inputPatterns) {
-      await onAddIgnorePattern(pattern)
+      await onAddTrackPattern(pattern)
     }
-    setIgnoreInput('')
+    setTrackInput('')
   }
 
   return (
     <aside className="flex h-full flex-col overflow-hidden border-r border-borderDark/20 bg-white">
       <section className="shrink-0 border-b border-borderDark/20 px-4 py-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-textMuted">
-          <EyeOff size={16} />
-          Global Ignore Settings
+          <Target size={16} />
+          Global Track Settings
         </div>
         <p className="text-[12px] text-textMuted mb-3">
-          Files and folders matching these patterns will be completely ignored across the entire
-          project (Scan, Context, Attention, and Plan).
+          Files and folders matching these patterns are force-tracked even when they match
+          .gitignore or Global Ignore rules.
         </p>
 
         <PatternEditor
-          value={ignoreInput}
-          onChange={setIgnoreInput}
+          value={trackInput}
+          onChange={setTrackInput}
           availablePaths={availablePaths}
           disabled={disabled}
-          placeholder={disabled ? 'Open a project to ignore...' : 'e.g. *.log\ntemp/\ndraft_*.md'}
+          placeholder={disabled ? 'Open a project to track...' : 'e.g. .env\nvendor/keep.txt\ndocs/**/*.md'}
         />
 
         <button
           type="button"
           onClick={() => void handleAddPatterns()}
           disabled={disabled || inputPatterns.length === 0}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-sm border border-danger bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-danger transition hover:bg-red-100 disabled:opacity-50"
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-sm border border-emerald-600 bg-emerald-50 px-3 py-1.5 text-[12px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
         >
           <Plus size={13} />
-          Add Ignore Pattern{inputPatterns.length > 1 ? 's' : ''}
+          Add Track Pattern{inputPatterns.length > 1 ? 's' : ''}
         </button>
 
         <div className="mt-4">
           <div className="text-[11px] font-semibold text-textMuted uppercase mb-2">
-            Active Rules ({ignorePatterns.length})
+            Active Rules ({trackPatterns.length})
           </div>
-          {ignorePatterns.length > 0 ? (
+          {trackPatterns.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 overflow-y-auto max-h-40 pr-1">
-              {ignorePatterns.map((pattern) => (
+              {trackPatterns.map((pattern) => (
                 <span
                   key={pattern}
-                  className="inline-flex items-center gap-1.5 rounded-sm border border-red-200 bg-red-50 px-2.5 py-1 text-[12px] font-medium text-red-800"
+                  className="inline-flex items-center gap-1.5 rounded-sm border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-medium text-emerald-800"
                 >
                   <span className="min-w-0 truncate">{pattern}</span>
                   <button
                     type="button"
-                    onClick={() => onRemoveIgnorePattern(pattern)}
+                    onClick={() => onRemoveTrackPattern(pattern)}
                     disabled={disabled}
-                    className="shrink-0 rounded-full p-0.5 transition-colors hover:bg-red-200 disabled:opacity-50"
+                    className="shrink-0 rounded-full p-0.5 transition-colors hover:bg-emerald-200 disabled:opacity-50"
                   >
                     <X size={12} />
                   </button>
@@ -164,7 +164,7 @@ export default function GlobalIgnorePanel({
             </div>
           ) : (
             <div className="text-[12px] text-textMuted italic">
-              No custom ignore patterns defined.
+              No force-track patterns defined.
             </div>
           )}
         </div>
@@ -176,8 +176,8 @@ export default function GlobalIgnorePanel({
         disabled={disabled}
         isLoading={isLoadingPreview}
         error={previewError}
-        emptyInputMessage="Enter ignore patterns to preview affected files."
-        emptyMatchMessage="No files would be ignored by these patterns."
+        emptyInputMessage="Enter track patterns to preview restored files."
+        emptyMatchMessage="No ignored files would be restored by these patterns."
       />
     </aside>
   )

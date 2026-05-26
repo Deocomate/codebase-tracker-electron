@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
-import { ClipboardList, EyeOff, Focus, Pin } from 'lucide-react'
+import { ClipboardList, EyeOff, Focus, Pin, Target } from 'lucide-react'
 
-export type ActivityView = 'attention' | 'plan' | 'ignore'
+export type ActivityView = 'attention' | 'plan' | 'ignore' | 'track'
 
 interface ActivityBarProps {
   activeView: ActivityView
@@ -13,7 +13,8 @@ interface ActivityBarProps {
 const activities: Array<{ view: ActivityView; label: string; icon: typeof Focus }> = [
   { view: 'attention', label: 'Focus', icon: Focus },
   { view: 'plan', label: 'Plan', icon: ClipboardList },
-  { view: 'ignore', label: 'Global Ignore', icon: EyeOff }
+  { view: 'ignore', label: 'Global Ignore', icon: EyeOff },
+  { view: 'track', label: 'Global Track', icon: Target }
 ]
 
 export default function ActivityBar({ activeView, onChangeView, onTogglePin, isPinning }: ActivityBarProps): ReactElement {

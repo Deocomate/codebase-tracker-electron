@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent, type ReactElement } from 'react'
-import { Copy, FileText, Link2, Loader2 } from 'lucide-react'
+import { Copy, FileText, Folder, Link2, Loader2 } from 'lucide-react'
 import type { AttentionFileEntry } from '../types'
 import { formatTokenCount } from '../utils/formatTokenCount'
 
@@ -120,7 +120,7 @@ export default function MatchedFilesPreview({
             {files.map((file) => {
               const { fileName, dirPath } = splitRelPath(file.relPath)
               const isRelated = Boolean(file.isRelated)
-              const Icon = isRelated ? Link2 : FileText
+              const Icon = isRelated ? Link2 : file.isDir ? Folder : FileText
               return (
                 <div
                   key={file.absPath}

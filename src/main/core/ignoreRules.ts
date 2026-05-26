@@ -46,6 +46,7 @@ interface Settings {
   priority_roots: string[]
   global_ignore_patterns: string[]
   custom_ignore_patterns: string[]
+  global_track_patterns: string[]
   attention_patterns: string[]
   split_config: {
     enabled: boolean
@@ -64,7 +65,7 @@ interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  schema_version: 11,
+  schema_version: 12,
   included_paths: [],
   excluded_paths: [],
   priority_roots: [],
@@ -75,6 +76,7 @@ const DEFAULT_SETTINGS: Settings = {
     '.idea/', '.vscode/', '*.log', '*.bak', '*.swp', '*.tmp', '.DS_Store'
   ],
   custom_ignore_patterns: [],
+  global_track_patterns: [],
   attention_patterns: [],
   split_config: { enabled: true, split_count: 5, token_threshold: 40000 },
   ui: { selected_formats: ['txt'], split_enabled: true, split_count: 5 },
@@ -86,7 +88,7 @@ export interface IgnorePreviewEntry {
   absPath: string
   relPath: string
   isDir: boolean
-  source: 'ignore'
+  source: 'ignore' | 'track'
 }
 
 export class IgnoreRules {
@@ -95,6 +97,7 @@ export class IgnoreRules {
   private settingsPath: string
   private baseIg: Ignore
   private customIg: Ignore
+  private trackIg: Ignore
   private gitignoreSpec: Ignore | null = null
   public included_paths: string[] = []
   public excluded_paths: string[] = []
@@ -107,6 +110,7 @@ export class IgnoreRules {
     this.settingsPath = path.join(this.codebaseDir, SETTINGS_FILENAME)
     this.baseIg = ignore().add(DEFAULT_SETTINGS.global_ignore_patterns)
     this.customIg = ignore()
+    this.trackIg = ignore()
     this.settings = this._deepClone(DEFAULT_SETTINGS)
   }
 
@@ -198,6 +202,10 @@ export class IgnoreRules {
       this.settings.schema_version = 11
       delete mutableSettings.wsl
     }
+    if ((this.settings.schema_version ?? 11) < 12) {
+      this.settings.schema_version = 12
+      this.settings.global_track_patterns = []
+    }
     // Fill missing keys
     for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
       if (!(key in this.settings)) {
@@ -206,6 +214,7 @@ export class IgnoreRules {
     }
     delete mutableSettings.wsl
     this.settings.custom_ignore_patterns = this._normalizeIgnorePatterns(this.settings.custom_ignore_patterns)
+    this.settings.global_track_patterns = this._normalizeIgnorePatterns(this.settings.global_track_patterns)
     // Sync ui config
     const ui = this.settings.ui
     if (ui.split_enabled === undefined) ui.split_enabled = this.settings.split_config.enabled
@@ -214,6 +223,7 @@ export class IgnoreRules {
 
   private _compileRules(): void {
     this.customIg = this._buildIgnoreSpec(this.settings.custom_ignore_patterns)
+    this.trackIg = this._buildIgnoreSpec(this.settings.global_track_patterns)
     this.baseIg = this._buildIgnoreSpec([
       ...this.settings.global_ignore_patterns
     ])
@@ -283,6 +293,53 @@ export class IgnoreRules {
     ignore().add(pattern)
   }
 
+  private _toCheckPath(relPath: string, isDir: boolean): string {
+    const norm = this._normalizePath(relPath)
+    if (isDir && norm !== '.' && !norm.endsWith('/')) return `${norm}/`
+    return norm
+  }
+
+  private _stripPatternSyntax(pattern: string): string {
+    return pattern
+      .replace(/^!+/, '')
+      .replace(/^\/+/, '')
+      .replace(/\\/g, '/')
+      .trim()
+  }
+
+  private _literalPrefixBeforeGlob(pattern: string): string {
+    const normalized = this._stripPatternSyntax(pattern)
+    const globIndex = normalized.search(/[*?[\]{}()]/)
+    const prefix = globIndex === -1 ? normalized : normalized.slice(0, globIndex)
+    return prefix.replace(/\/+$/, '')
+  }
+
+  private _hasPotentialTrackDescendant(relPath: string): boolean {
+    const norm = this._normalizePath(relPath)
+    if (norm === '.') return this.settings.global_track_patterns.length > 0
+
+    const dirPrefix = `${norm}/`
+    for (const rawPattern of this.settings.global_track_patterns) {
+      const pattern = this._stripPatternSyntax(rawPattern)
+      if (!pattern) continue
+      if (pattern === norm || pattern.startsWith(dirPrefix)) return true
+
+      const literalPrefix = this._literalPrefixBeforeGlob(pattern)
+      if (!literalPrefix) return true
+      if (literalPrefix === norm || literalPrefix.startsWith(dirPrefix)) return true
+      if (norm.startsWith(`${literalPrefix}/`)) return true
+    }
+    return false
+  }
+
+  private _matchesOverridableIgnore(relPath: string, isDir: boolean): boolean {
+    const checkPath = this._toCheckPath(relPath, isDir)
+    if (this.baseIg.ignores(checkPath)) return true
+    if (this.gitignoreSpec?.ignores(checkPath)) return true
+    if (this.customIg.ignores(checkPath)) return true
+    return false
+  }
+
   // ==================== Path matching ====================
 
   private _pathMatchesRule(pathStr: string, rule: string): boolean {
@@ -319,10 +376,11 @@ export class IgnoreRules {
       : absPathOrRelPath
 
     const norm = this._normalizePath(relPath)
-    if (norm === '_codebase' || norm.startsWith('_codebase/')) return true
+    if (this.isHardIgnoredByRelPath(norm, isDir)) return true
+    if (this.isGlobalTrackedByRelPath(norm, isDir)) return false
+    if (isDir && this._hasPotentialTrackDescendant(norm)) return false
 
-    let checkPath = norm
-    if (isDir && checkPath !== '.' && !checkPath.endsWith('/')) checkPath += '/'
+    const checkPath = this._toCheckPath(norm, isDir)
 
     if (this.baseIg.ignores(checkPath)) return true
     if (this.gitignoreSpec?.ignores(checkPath)) return true
@@ -335,24 +393,44 @@ export class IgnoreRules {
   }
 
   isGloballyIgnoredByRelPath(relPath: string, isDir: boolean): boolean {
-    if (this.isBaseIgnored(relPath, isDir, false)) return true
-
     const norm = this._normalizePath(relPath)
-    let checkPath = norm
-    if (isDir && checkPath !== '.' && !checkPath.endsWith('/')) checkPath += '/'
+    if (this.isHardIgnoredByRelPath(norm, isDir)) return true
+    if (this.isGlobalTrackedByRelPath(norm, isDir)) return false
 
-    if (this.customIg.ignores(checkPath)) return true
-    return false
+    const checkPath = this._toCheckPath(norm, isDir)
+    const ignored = this.baseIg.ignores(checkPath) ||
+      Boolean(this.gitignoreSpec?.ignores(checkPath)) ||
+      this.customIg.ignores(checkPath)
+
+    if (ignored && isDir && this._hasPotentialTrackDescendant(norm)) return false
+    return ignored
   }
 
   isCustomIgnoredByRelPath(relPath: string, isDir: boolean): boolean {
     const norm = this._normalizePath(relPath)
-    if (norm === '_codebase' || norm.startsWith('_codebase/')) return true
+    if (this.isHardIgnoredByRelPath(norm, isDir)) return true
+    if (this.isGlobalTrackedByRelPath(norm, isDir)) return false
+    if (isDir && this._hasPotentialTrackDescendant(norm)) return false
 
-    let checkPath = norm
-    if (isDir && checkPath !== '.' && !checkPath.endsWith('/')) checkPath += '/'
+    const checkPath = this._toCheckPath(norm, isDir)
 
     return this.customIg.ignores(checkPath)
+  }
+
+  isHardIgnoredByRelPath(relPath: string, isDir: boolean): boolean {
+    const checkPath = this._toCheckPath(relPath, isDir)
+    return checkPath === '_codebase' ||
+      checkPath === '_codebase/' ||
+      checkPath.startsWith('_codebase/') ||
+      checkPath === '.git' ||
+      checkPath === '.git/' ||
+      checkPath.startsWith('.git/')
+  }
+
+  isGlobalTrackedByRelPath(relPath: string, isDir: boolean): boolean {
+    const norm = this._normalizePath(relPath)
+    if (this.isHardIgnoredByRelPath(norm, isDir)) return false
+    return this.trackIg.ignores(this._toCheckPath(norm, isDir))
   }
 
   isExplicitlyIncluded(pathStr: string): boolean {
@@ -364,6 +442,8 @@ export class IgnoreRules {
 
   isPathSelected(pathStr: string): boolean {
     const norm = this._normalizePath(pathStr)
+    if (this.isGlobalTrackedByRelPath(norm, false)) return true
+
     const incSpec = this._bestSpecificity(norm, this.included_paths)
     const excSpec = this._bestSpecificity(norm, this.excluded_paths)
 
@@ -383,9 +463,16 @@ export class IgnoreRules {
 
     const hasInc = this.hasDescendantRule(norm, this.included_paths)
     const hasExc = this.hasDescendantRule(norm, this.excluded_paths)
+    const hasTrack = isDir && this._hasPotentialTrackDescendant(norm)
 
-    if ((selected && hasExc) || (!selected && hasInc) || (hasInc && hasExc)) return 'partial'
+    if ((selected && hasExc) || (!selected && (hasInc || hasTrack)) || (hasInc && hasExc)) {
+      return 'partial'
+    }
     return selected ? 'checked' : 'unchecked'
+  }
+
+  hasGlobalTrackDescendant(pathStr: string): boolean {
+    return this._hasPotentialTrackDescendant(pathStr)
   }
 
   // ==================== Mutation methods ====================
@@ -444,6 +531,11 @@ export class IgnoreRules {
     return [...this.settings.custom_ignore_patterns]
   }
 
+  getGlobalTrackPatterns(): string[] {
+    if (!Array.isArray(this.settings.global_track_patterns)) return []
+    return [...this.settings.global_track_patterns]
+  }
+
   async addCustomIgnorePattern(pattern: string, persist = true): Promise<string[]> {
     const normalized = this._normalizeIgnorePattern(pattern)
     if (!normalized) return this.getCustomIgnorePatterns()
@@ -468,6 +560,32 @@ export class IgnoreRules {
     if (persist) await this._saveSettings()
     this._compileRules()
     return this.getCustomIgnorePatterns()
+  }
+
+  async addGlobalTrackPattern(pattern: string, persist = true): Promise<string[]> {
+    const normalized = this._normalizeIgnorePattern(pattern)
+    if (!normalized) return this.getGlobalTrackPatterns()
+
+    this._assertValidIgnorePattern(normalized)
+
+    const current = this._normalizeIgnorePatterns(this.settings.global_track_patterns)
+    if (!current.includes(normalized)) current.push(normalized)
+    this.settings.global_track_patterns = current
+
+    if (persist) await this._saveSettings()
+    this._compileRules()
+    return this.getGlobalTrackPatterns()
+  }
+
+  async removeGlobalTrackPattern(pattern: string, persist = true): Promise<string[]> {
+    const normalized = this._normalizeIgnorePattern(pattern)
+    this.settings.global_track_patterns = this._normalizeIgnorePatterns(
+      this.settings.global_track_patterns
+    ).filter((item) => item !== normalized)
+
+    if (persist) await this._saveSettings()
+    this._compileRules()
+    return this.getGlobalTrackPatterns()
   }
 
   async previewCustomPattern(pattern: string, maxResults = 50): Promise<IgnorePreviewEntry[]> {
@@ -498,17 +616,15 @@ export class IgnoreRules {
 
       for (const entry of entries) {
         if (results.length >= limit) return
-        if (entry.name === '_codebase') continue
 
         const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
         const isDir = entry.isDirectory()
+        if (this.isHardIgnoredByRelPath(relPath, isDir)) continue
+        if (this.isGlobalTrackedByRelPath(relPath, isDir)) continue
 
         if (this.isGloballyIgnoredByRelPath(relPath, isDir)) continue
 
-        let checkPath = this._normalizePath(relPath)
-        if (isDir && checkPath !== '.' && !checkPath.endsWith('/')) checkPath += '/'
-
-        if (tempIg.ignores(checkPath)) {
+        if (tempIg.ignores(this._toCheckPath(relPath, isDir))) {
           results.push({
             absPath: path.join(absDir, entry.name),
             relPath,
@@ -524,6 +640,96 @@ export class IgnoreRules {
 
     await walk('')
     return results
+  }
+
+  async previewGlobalTrackPattern(pattern: string, maxResults = 50): Promise<IgnorePreviewEntry[]> {
+    const normalized = this._normalizeIgnorePattern(pattern)
+    if (!normalized) return []
+
+    this._assertValidIgnorePattern(normalized)
+
+    const tempIg = ignore().add(normalized)
+    const limit = Math.max(1, Math.floor(maxResults))
+    const results: IgnorePreviewEntry[] = []
+
+    const walk = async (relDir: string): Promise<void> => {
+      if (results.length >= limit) return
+
+      const absDir = relDir ? path.join(this.projectPath, relDir) : this.projectPath
+      let entries: Dirent[]
+      try {
+        entries = await fs.readdir(absDir, { withFileTypes: true })
+      } catch {
+        return
+      }
+
+      entries.sort((a, b) => {
+        if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+
+      for (const entry of entries) {
+        if (results.length >= limit) return
+
+        const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+        const isDir = entry.isDirectory()
+        if (this.isHardIgnoredByRelPath(relPath, isDir)) continue
+
+        if (tempIg.ignores(this._toCheckPath(relPath, isDir)) &&
+          this._matchesOverridableIgnore(relPath, isDir)) {
+          results.push({
+            absPath: path.join(absDir, entry.name),
+            relPath,
+            isDir,
+            source: 'track'
+          })
+        }
+
+        if (isDir) await walk(relPath)
+      }
+    }
+
+    await walk('')
+    return results
+  }
+
+  async collectSuggestionPaths(maxPaths = 10000): Promise<string[]> {
+    const results = new Set<string>()
+
+    const walk = async (relDir: string, includeIgnored: boolean): Promise<void> => {
+      if (results.size >= maxPaths) return
+
+      const absDir = relDir ? path.join(this.projectPath, relDir) : this.projectPath
+      let entries: Dirent[]
+      try {
+        entries = await fs.readdir(absDir, { withFileTypes: true })
+      } catch {
+        return
+      }
+
+      entries.sort((a, b) => {
+        if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+
+      for (const entry of entries) {
+        if (results.size >= maxPaths) return
+        const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+        const isDir = entry.isDirectory()
+        if (this.isHardIgnoredByRelPath(relPath, isDir)) continue
+
+        const ignored = this._matchesOverridableIgnore(relPath, isDir) &&
+          !this.isGlobalTrackedByRelPath(relPath, isDir)
+        if (!includeIgnored && ignored) continue
+
+        results.add(isDir ? `${relPath}/` : relPath)
+        if (isDir) await walk(relPath, includeIgnored)
+      }
+    }
+
+    await walk('', false)
+    if (results.size < maxPaths) await walk('', true)
+    return Array.from(results).sort((a, b) => a.localeCompare(b))
   }
 
   getUiPreferences(): { selected_formats: string[]; split_enabled: boolean; split_count: number } {

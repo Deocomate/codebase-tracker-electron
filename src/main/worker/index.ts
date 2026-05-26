@@ -154,6 +154,8 @@ async function handleInit(id: string, payload: Record<string, unknown>): Promise
     sendSuccess(id, {
       tree: rootNode,
       attention_patterns: rules.getAttentionPatterns(),
+      global_track_patterns: rules.getGlobalTrackPatterns(),
+      suggestion_paths: await rules.collectSuggestionPaths(),
       project_path: fsPath
     })
   } catch (err: unknown) {
@@ -387,6 +389,64 @@ async function handlePreviewIgnorePattern(id: string, payload: Record<string, un
   }
 }
 
+async function handleGetTrackPatterns(id: string): Promise<void> {
+  if (!rules) return sendSuccess(id, { patterns: [] })
+  sendSuccess(id, { patterns: rules.getGlobalTrackPatterns() })
+}
+
+async function handleAddTrackPattern(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules) return sendError(id, 'Project chÆ°a Ä‘Æ°á»£c load')
+
+  try {
+    const pattern = payload.pattern as string
+    const patterns = await rules.addGlobalTrackPattern(pattern, true)
+    const tree = await rebuildProjectTree()
+    sendSuccess(id, { patterns, tree })
+  } catch (err: unknown) {
+    sendError(id, err instanceof Error ? err.message : String(err))
+  }
+}
+
+async function handleRemoveTrackPattern(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules) return sendError(id, 'Project chÆ°a Ä‘Æ°á»£c load')
+
+  try {
+    const pattern = payload.pattern as string
+    const patterns = await rules.removeGlobalTrackPattern(pattern, true)
+    const tree = await rebuildProjectTree()
+    sendSuccess(id, { patterns, tree })
+  } catch (err: unknown) {
+    sendError(id, err instanceof Error ? err.message : String(err))
+  }
+}
+
+async function handlePreviewTrackPattern(id: string, payload: Record<string, unknown>): Promise<void> {
+  if (!rules) return sendSuccess(id, { files: [] })
+
+  const pattern = typeof payload.pattern === 'string' ? payload.pattern : ''
+  const maxResults =
+    typeof payload.maxResults === 'number' ? Math.min(Math.max(payload.maxResults, 1), 100) : 50
+  if (!pattern.trim()) return sendSuccess(id, { files: [] })
+
+  try {
+    const files = await rules.previewGlobalTrackPattern(pattern, maxResults)
+    sendSuccess(id, { files })
+  } catch (err: unknown) {
+    sendSuccess(id, { files: [], error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+async function handleGetSuggestionPaths(id: string): Promise<void> {
+  if (!rules) return sendSuccess(id, { paths: [] })
+
+  try {
+    const paths = await rules.collectSuggestionPaths()
+    sendSuccess(id, { paths })
+  } catch (err: unknown) {
+    sendSuccess(id, { paths: [], error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
 async function handleGenerate(id: string, payload: Record<string, unknown>): Promise<void> {
   if (!rules || !projectPath) return sendError(id, 'Project chưa được load')
 
@@ -494,6 +554,16 @@ async function dispatch(request: WorkerRequest): Promise<void> {
         return handleRemoveIgnorePattern(id, p)
       case 'PREVIEW_IGNORE_PATTERN':
         return handlePreviewIgnorePattern(id, p)
+      case 'GET_TRACK_PATTERNS':
+        return handleGetTrackPatterns(id)
+      case 'ADD_TRACK_PATTERN':
+        return handleAddTrackPattern(id, p)
+      case 'REMOVE_TRACK_PATTERN':
+        return handleRemoveTrackPattern(id, p)
+      case 'PREVIEW_TRACK_PATTERN':
+        return handlePreviewTrackPattern(id, p)
+      case 'GET_SUGGESTION_PATHS':
+        return handleGetSuggestionPaths(id)
       case 'GENERATE':
         return handleGenerate(id, p)
       case 'CANCEL_GENERATE':

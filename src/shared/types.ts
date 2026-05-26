@@ -17,6 +17,11 @@ export type WorkerAction =
   | 'ADD_IGNORE_PATTERN'
   | 'REMOVE_IGNORE_PATTERN'
   | 'PREVIEW_IGNORE_PATTERN'
+  | 'GET_TRACK_PATTERNS'
+  | 'ADD_TRACK_PATTERN'
+  | 'REMOVE_TRACK_PATTERN'
+  | 'PREVIEW_TRACK_PATTERN'
+  | 'GET_SUGGESTION_PATHS'
   | 'GENERATE'
   | 'CANCEL_GENERATE'
   | 'CLEAR_OUTPUT'
@@ -52,8 +57,10 @@ export interface AttentionFileEntry {
   absPath: string
   relPath: string
   tokens?: number
+  isDir?: boolean
   isRelated?: boolean
   importedBy?: string
+  source?: 'ignore' | 'track'
 }
 
 export interface SimpleResponse {
@@ -68,6 +75,8 @@ export interface LoadProjectResponse {
   project_path?: string
   tree?: TreeNode
   attention_patterns?: string[]
+  global_track_patterns?: string[]
+  suggestion_paths?: string[]
 }
 
 export interface TreeMutationResponse {
@@ -145,6 +154,28 @@ export interface IgnorePatternMutationResponse {
 
 export interface IgnorePreviewResponse {
   files: AttentionFileEntry[]
+  error?: string
+}
+
+export interface TrackPatternsResponse {
+  patterns: string[]
+  error?: string
+}
+
+export interface TrackPatternMutationResponse {
+  status?: string
+  patterns?: string[]
+  tree?: TreeNode
+  error?: string
+}
+
+export interface TrackPreviewResponse {
+  files: AttentionFileEntry[]
+  error?: string
+}
+
+export interface SuggestionPathsResponse {
+  paths: string[]
   error?: string
 }
 

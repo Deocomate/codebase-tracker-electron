@@ -6,18 +6,27 @@ interface ConsoleLogProps {
 }
 
 export default function ConsoleLog({ logs }: ConsoleLogProps): ReactElement {
-  const logEndRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const frameId = requestAnimationFrame(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight
+      }
+    })
+
+    return () => cancelAnimationFrame(frameId)
   }, [logs])
 
   return (
-    <Card title="Output Console">
-      <div className="bg-[#1e1e1e] p-3 h-40 overflow-y-auto font-mono text-[12px] text-[#cccccc]">
+    <Card title="Output Console" bodyClassName="p-0">
+      <div
+        ref={containerRef}
+        className="h-48 overflow-y-auto rounded-b-lg bg-[#1e1e1e] p-4 font-mono text-[12px] text-[#cccccc] shadow-inner"
+      >
         {logs.map((log, index) => (
-          <div key={index} className="mb-0.5 leading-relaxed">
-            <span className="text-[#858585] mr-2">
+          <div key={index} className="mb-1 leading-relaxed">
+            <span className="mr-3 select-none text-[#858585]">
               [{new Date().toLocaleTimeString()}]
             </span>
             <span
@@ -33,7 +42,6 @@ export default function ConsoleLog({ logs }: ConsoleLogProps): ReactElement {
             </span>
           </div>
         ))}
-        <div ref={logEndRef} />
       </div>
     </Card>
   )

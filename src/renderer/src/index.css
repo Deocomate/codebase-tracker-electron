@@ -17,6 +17,8 @@ body {
   color: var(--color-textMain);
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, sans-serif;
+  scrollbar-color: rgba(121, 121, 121, 0.42) transparent;
+  scrollbar-width: auto;
 }
 
 /* Split.js gutter styles */
@@ -27,12 +29,22 @@ body {
 }
 
 .gutter {
-  background-color: transparent !important;
+  background: transparent;
   background-repeat: no-repeat;
   background-position: 50%;
   position: relative;
   cursor: col-resize;
-  z-index: 10;
+  z-index: 20;
+}
+
+.gutter::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  cursor: col-resize;
 }
 
 .gutter::after {
@@ -43,30 +55,57 @@ body {
   bottom: 0;
   width: 1px;
   transform: translateX(-50%);
-  background-color: var(--color-borderDark);
-  transition: all 0.2s ease;
+  background-color: rgba(43, 43, 43, 0.42);
+  opacity: 1;
+  transition:
+    width 120ms ease,
+    background-color 120ms ease,
+    opacity 120ms ease;
 }
 
 .gutter:hover::after,
 .gutter:active::after {
-  background-color: var(--color-accent);
-  width: 3px;
+  width: 4px;
+  background-color: #007acc;
+  opacity: 1;
 }
 
 /* Scrollbar styles */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 16px;
+  height: 16px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+::-webkit-scrollbar-track-piece {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
+  min-height: 36px;
+  background-color: rgba(79, 79, 79, 0.42);
+  border: 0;
+  border-radius: 0 !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background-color: rgba(79, 79, 79, 0.58);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: rgba(79, 79, 79, 0.72);
 }

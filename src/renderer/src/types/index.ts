@@ -13,6 +13,10 @@ export type {
   PlanTextResponse,
   SettingsResponse,
   SimpleResponse,
+  SuggestionPathsResponse,
+  TrackPatternMutationResponse,
+  TrackPatternsResponse,
+  TrackPreviewResponse,
   TreeMutationResponse as ToggleNodeResponse
 } from '../../../shared/types'
 

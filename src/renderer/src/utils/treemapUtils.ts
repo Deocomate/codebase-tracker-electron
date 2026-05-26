@@ -66,112 +66,94 @@ function getGroupLabel(key: string): string {
   return key === 'root' ? 'Root files' : key
 }
 
-function buildGroupMap(root: TreeData | null): Map<string, GroupMeta> {
-  const keys = new Set<string>()
-
-  function visit(node: TreeData | null): void {
-    if (!node || node.checked === 'unchecked' || node.is_ignored || node.tokens <= 0) return
-    if (!node.is_dir) keys.add(getGroupKey(node.id))
-    node.children.forEach(visit)
-  }
-
-  visit(root)
-
-  return new Map(
-    Array.from(keys)
-      .sort((a, b) => a.localeCompare(b))
-      .map((key, index) => [
-        key,
-        {
-          key,
-          label: getGroupLabel(key),
-          color: MODULE_COLORS[index % MODULE_COLORS.length]
-        }
-      ])
-  )
-}
-
-function getGroupMeta(path: string, groupMap: Map<string, GroupMeta>): GroupMeta {
-  const key = getGroupKey(path)
-  return (
-    groupMap.get(key) ?? {
-      key,
-      label: getGroupLabel(key),
-      color: MODULE_COLORS[0]
-    }
-  )
-}
-
 /**
- * Build treemap view data aggregated at the folder/module level.
- * Instead of rendering every file as a leaf node, we sum tokens per group key
- * (e.g. "src/components", "src/utils") and produce a flat list of large blocks.
+ * Build treemap view data as a deep hierarchy so the packed-circle chart can
+ * drill into real folders instead of a flat module aggregate.
  */
 export function buildTreemapViewData(node: TreeData | null): TreemapViewData {
   if (!node) return { root: null, topItems: [], totalTokens: 0 }
 
-  const groupMap = buildGroupMap(node)
-  const folderTokens = new Map<string, number>()
   let totalTokens = 0
 
-  // Recursively sum tokens for each group (folder)
-  function sumTokens(currNode: TreeData): void {
-    if (currNode.checked === 'unchecked' || currNode.is_ignored || currNode.tokens <= 0) return
+  function mapNode(
+    currNode: TreeData,
+    depth = 0,
+    inheritedGroup?: GroupMeta,
+    siblingIndex = 0
+  ): TreemapNode | null {
+    if (currNode.checked === 'unchecked' || currNode.is_ignored) return null
+
+    const ownGroup =
+      depth === 1
+        ? {
+            key: getGroupKey(currNode.id),
+            label: currNode.name || getGroupLabel(getGroupKey(currNode.id)),
+            color: MODULE_COLORS[siblingIndex % MODULE_COLORS.length]
+          }
+        : inheritedGroup
+
+    const group =
+      ownGroup ?? {
+        key: getGroupKey(currNode.id),
+        label: getGroupLabel(getGroupKey(currNode.id)),
+        color: '#000000'
+      }
 
     if (!currNode.is_dir) {
-      const group = getGroupMeta(currNode.id, groupMap)
-      const currentVal = folderTokens.get(group.key) || 0
-      folderTokens.set(group.key, currentVal + currNode.tokens)
+      if (currNode.tokens <= 0) return null
       totalTokens += currNode.tokens
-    }
 
-    currNode.children.forEach(sumTokens)
-  }
-
-  sumTokens(node)
-
-  // Build flat array of folder-level nodes for treemap
-  const children: TreemapNode[] = Array.from(folderTokens.entries())
-    .map(([key, tokens]) => {
-      const group = groupMap.get(key)!
       return {
-        name: group.label,
-        loc: tokens,
-        path: key,
-        tokens: tokens,
-        isDir: true,
-        depth: 1,
-        groupKey: key,
+        name: currNode.name || currNode.id,
+        loc: currNode.tokens,
+        path: currNode.id,
+        tokens: currNode.tokens,
+        isDir: false,
+        depth,
+        groupKey: group.key,
         groupLabel: group.label,
         color: group.color
       }
-    })
-    .filter((c) => c.tokens > 0)
-    .sort((a, b) => b.tokens - a.tokens)
+    }
 
-  const root: TreemapNode = {
-    name: 'Total Context',
-    loc: totalTokens,
-    path: 'total-context',
-    tokens: totalTokens,
-    isDir: true,
-    depth: 0,
-    groupKey: 'total-context',
-    groupLabel: 'Total Context',
-    color: '#000',
-    children
+    const children = currNode.children
+      .map((child, index) => mapNode(child, depth + 1, group, index))
+      .filter((child): child is TreemapNode => child !== null)
+      .sort((a, b) => b.tokens - a.tokens)
+
+    if (children.length === 0) return null
+
+    const tokens = children.reduce((sum, child) => sum + child.tokens, 0)
+
+    return {
+      name: depth === 0 ? 'Total Context' : currNode.name || currNode.id,
+      loc: tokens,
+      path: currNode.id,
+      tokens,
+      isDir: true,
+      depth,
+      groupKey: depth === 0 ? currNode.id : group.key,
+      groupLabel: depth === 0 ? 'Total Context' : group.label,
+      color: depth === 0 ? '#000000' : group.color,
+      children
+    }
   }
 
-  const topItems: TreemapTopItem[] = children.slice(0, 8).map((c) => ({
-    name: c.name,
-    path: c.path,
-    parentPath: 'total-context',
-    tokens: c.tokens,
-    percentage: totalTokens > 0 ? (c.tokens / totalTokens) * 100 : 0,
-    groupKey: c.groupKey,
-    groupLabel: c.groupLabel,
-    color: c.color
-  }))
+  const root = mapNode(node)
+
+  const topItems: TreemapTopItem[] = (root?.children ?? [])
+    .slice(0, 8)
+    .map((c) => ({
+      name: c.name,
+      path: c.path,
+      parentPath: root?.path ?? '.',
+      tokens: c.tokens,
+      percentage: totalTokens > 0 ? (c.tokens / totalTokens) * 100 : 0,
+      groupKey: c.groupKey,
+      groupLabel: c.groupLabel,
+      color: c.color
+    }))
+    .sort((a, b) => b.tokens - a.tokens)
 
   return { root, topItems, totalTokens }
 }
